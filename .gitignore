@@ -1,0 +1,59 @@
+# Local user request specific exclusions
+goal.txt
+steps.txt
+
+# Python virtual environment, bytecode, and test cache
+venv/
+.venv/
+*/.venv/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*/.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Node environment dependencies and builds
+node_modules/
+*/node_modules/
+dist/
+*/dist/
+build/
+*/build/
+.cache/
+*/.cache/
+.vite/
+*/.vite/
+
+# Local mock storage / temporary upload files
+mock_bucket/
+*/mock_bucket/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment configurations containing secrets
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+!.env.example
+
+# IDE & Editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Operating System files
+.DS_Store
+._*
+Thumbs.db
+
+
