@@ -264,3 +264,37 @@ def test_train_svm(sample_ml_dataframe):
     assert "Support Vector" in res_reg.model_name
 
 
+def test_target_suitability_and_failsafes(sample_ml_dataframe):
+    from core.exceptions import ValidationError
+
+    df = sample_ml_dataframe.copy()
+    df["order_id"] = [f"ORD_{1000 + i}" for i in range(len(df))]
+    df["customer_name"] = [f"Client_{i}" for i in range(len(df))]
+    df["constant_feature"] = 42
+
+    targets = get_candidate_targets(df)
+    target_map = {t["column"]: t for t in targets}
+
+    # order_id, customer_name, and constant_feature should be flagged as ineligible
+    assert target_map["order_id"]["is_suitable"] is False
+    assert target_map["customer_name"]["is_suitable"] is False
+    assert target_map["constant_feature"]["is_suitable"] is False
+    assert "Identifier" in target_map["order_id"]["suitability_reason"]
+
+    # revenue and churn must remain suitable
+    assert target_map["revenue"]["is_suitable"] is True
+    assert target_map["churn"]["is_suitable"] is True
+
+    # Attempting to detect or train on order_id must raise ValidationError
+    with pytest.raises(ValidationError):
+        detect_ml_task(df, "order_id")
+
+    with pytest.raises(ValidationError):
+        train_model_on_dataframe(df, target_col="order_id", model_type="linear_regression")
+
+    # Attempting to train on customer_name must raise ValidationError
+    with pytest.raises(ValidationError):
+        train_model_on_dataframe(df, target_col="customer_name", model_type="random_forest")
+
+
+

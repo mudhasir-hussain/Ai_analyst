@@ -351,6 +351,16 @@ class AuditTimelineResponse(BaseModel):
 # 11. Machine Learning & Model Pedagogy Schemas
 # ------------------------------------------------------------------------------
 
+class MLTargetCandidate(BaseModel):
+    column: str = Field(..., description="Column name.")
+    task_type: str = Field(..., description="'regression', 'classification', or 'ineligible'.")
+    data_type: str = Field(..., description="Pandas data type.")
+    unique_values: int = Field(..., description="Number of unique non-null values.")
+    null_count: int = Field(..., description="Number of missing values.")
+    is_suitable: bool = Field(True, description="Whether this column is eligible to be a supervised ML target.")
+    suitability_reason: Optional[str] = Field(None, description="Explanation if ineligible or why caution is needed.")
+
+
 class MLConfusionMatrix(BaseModel):
     labels: List[str] = Field(default_factory=list, description="Ordered class labels corresponding to matrix rows/cols.")
     matrix: List[List[int]] = Field(default_factory=list, description="Confusion matrix where rows are actual and cols are predicted.")

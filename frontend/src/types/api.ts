@@ -245,10 +245,12 @@ export interface AuditTimelineResponse {
 
 export interface MLTargetCandidate {
   column: string;
-  task_type: 'regression' | 'classification';
+  task_type: 'regression' | 'classification' | 'ineligible';
   data_type: string;
   unique_values: number;
   null_count: number;
+  is_suitable?: boolean;
+  suitability_reason?: string | null;
 }
 
 export interface MLLossEpochPoint {

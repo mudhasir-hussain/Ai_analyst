@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 import pandas as pd
@@ -27,27 +28,97 @@ from .evaluator import evaluate_model_pedagogy
 
 logger = logging.getLogger(__name__)
 
+ID_COLUMN_PATTERN = re.compile(
+    r"(?:^|[_\W])(id|uuid|guid|key|pk|hash|token|ssn|index)(?:$|[_\W])",
+    re.IGNORECASE
+)
 
-def detect_ml_task(df: pd.DataFrame, target_col: str) -> str:
+FREE_TEXT_NAME_PATTERN = re.compile(
+    r"(?:^|[_\W])(name|full_name|first_name|last_name|email|phone|url|address|city|street|zip|description|notes|comment|review|title|bio|summary)(?:$|[_\W])",
+    re.IGNORECASE
+)
+
+
+def evaluate_target_suitability(series: pd.Series, col_name: str) -> Tuple[bool, Optional[str]]:
     """
-    Infers whether the given target column represents a Regression or Classification task.
+    Evaluates whether a column is eligible to be modeled as a supervised ML target.
+    Returns (is_suitable, reason_if_not_suitable).
+    """
+    non_null = series.dropna()
+    total_len = len(series)
+    non_null_len = len(non_null)
+
+    if non_null_len < 5:
+        return False, "Fewer than 5 non-null rows"
+
+    if (total_len - non_null_len) / total_len > 0.60:
+        pct = round((total_len - non_null_len) / total_len * 100)
+        return False, f"Excessive missing values ({pct}% null)"
+
+    unique_count = int(non_null.nunique())
+    if unique_count <= 1:
+        return False, "Constant column (zero variance)"
+
+    # Datetime timestamp check
+    if pd.api.types.is_datetime64_any_dtype(series) or col_name.lower().endswith(('_date', '_time', '_at', 'timestamp')):
+        return False, "Datetime timestamp (cannot predict raw dates)"
+
+    col_lower = col_name.lower().strip()
+
+    # Identifiers / Primary Keys
+    is_id_name = bool(ID_COLUMN_PATTERN.search(col_name)) or col_lower.endswith('_id') or col_lower.startswith('id_')
+    if is_id_name:
+        if unique_count > 15 or unique_count / non_null_len > 0.4:
+            return False, "Identifier / Unique key (arbitrary IDs cannot be predicted)"
+
+    # Text / Names / Emails
+    is_text_name = bool(FREE_TEXT_NAME_PATTERN.search(col_name))
+    if not pd.api.types.is_numeric_dtype(series):
+        if is_text_name and unique_count > 10:
+            return False, f"Name/Text entity ({unique_count} distinct text values)"
+        if unique_count > 25:
+            return False, f"High-cardinality text ({unique_count} categories; max 25 for classification)"
+        if unique_count / non_null_len > 0.35 and unique_count > 8:
+            return False, "High-cardinality non-numeric values (near-unique text)"
+
+    # Numeric sequential index
+    if pd.api.types.is_numeric_dtype(series):
+        if is_id_name and unique_count == non_null_len:
+            return False, "Sequential numeric index / ID"
+
+    return True, None
+
+
+def detect_ml_task(df: pd.DataFrame, target_col: str, enforce_suitability: bool = True) -> str:
+    """
+    Infers whether the given target column represents a Regression or Classification task,
+    while enforcing strict validation failsafes against ID/name/unsuitable columns.
     """
     if target_col not in df.columns:
         raise ValidationError(f"Target column '{target_col}' not found in dataset.", "COLUMN_NOT_FOUND")
 
-    series = df[target_col].dropna()
-    if len(series) == 0:
+    series = df[target_col]
+    if enforce_suitability:
+        is_suitable, reason = evaluate_target_suitability(series, target_col)
+        if not is_suitable:
+            raise ValidationError(
+                f"Column '{target_col}' cannot be used as an ML target: {reason}.",
+                "INVALID_TARGET_COLUMN"
+            )
+
+    clean_series = series.dropna()
+    if len(clean_series) == 0:
         raise ValidationError(f"Target column '{target_col}' has no non-null values.", "EMPTY_TARGET")
 
     # String, category, boolean, or object types are classification
-    if not pd.api.types.is_numeric_dtype(series):
+    if not pd.api.types.is_numeric_dtype(clean_series):
         return "classification"
 
-    unique_vals = series.nunique()
+    unique_vals = clean_series.nunique()
     # Low unique counts or binary 0/1 are classification
     if unique_vals <= 2:
         return "classification"
-    if unique_vals <= 8 and (series % 1 == 0).all():
+    if unique_vals <= 10 and (clean_series % 1 == 0).all():
         return "classification"
 
     return "regression"
@@ -55,22 +126,31 @@ def detect_ml_task(df: pd.DataFrame, target_col: str) -> str:
 
 def get_candidate_targets(df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
-    Returns candidate target columns in the dataset along with inferred task type.
+    Inspects all dataset columns and evaluates suitability as ML targets.
+    Returns categorized candidates with task type, suitability flag, and explanatory reason.
+    Suitable columns are sorted first.
     """
     candidates = []
     for col in df.columns:
         try:
-            task = detect_ml_task(df, col)
-            unique_count = int(df[col].nunique())
+            series = df[col]
+            is_suitable, reason = evaluate_target_suitability(series, col)
+            task = detect_ml_task(df, col, enforce_suitability=False) if is_suitable else "ineligible"
+            unique_count = int(series.dropna().nunique())
             candidates.append({
                 "column": col,
                 "task_type": task,
-                "data_type": str(df[col].dtype),
+                "data_type": str(series.dtype),
                 "unique_values": unique_count,
-                "null_count": int(df[col].isnull().sum())
+                "null_count": int(series.isnull().sum()),
+                "is_suitable": is_suitable,
+                "suitability_reason": reason
             })
         except Exception:
             continue
+
+    # Sort so suitable targets appear first, then alphabetically
+    candidates.sort(key=lambda c: (not c["is_suitable"], c["column"]))
     return candidates
 
 

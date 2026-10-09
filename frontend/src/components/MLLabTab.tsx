@@ -64,11 +64,14 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         const list: MLTargetCandidate[] = Array.isArray(res) ? res : (res?.candidates || []);
         setCandidates(list);
         if (list.length > 0) {
-          const firstTarget = list[0].column;
+          const suitable = list.filter((c) => c.is_suitable !== false);
+          const firstTarget = suitable.length > 0 ? suitable[0].column : list[0].column;
           setSelectedTarget(firstTarget);
-          // Initialize selected features to all other candidate columns
-          const otherCols = list.map((c) => c.column).filter((c) => c !== firstTarget);
-          setSelectedFeatures(otherCols);
+          // Initialize selected features to suitable columns, excluding identifiers and free-text by default
+          const validCols = list
+            .filter((c) => c.column !== firstTarget && c.is_suitable !== false)
+            .map((c) => c.column);
+          setSelectedFeatures(validCols.length > 0 ? validCols : list.filter((c) => c.column !== firstTarget).map((c) => c.column));
         }
       })
       .catch((err) => {
@@ -130,6 +133,11 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
       return;
     }
 
+    if (currentCandidate && currentCandidate.is_suitable === false) {
+      showToast(`Cannot train: "${selectedTarget}" is ineligible (${currentCandidate.suitability_reason || 'ID or high-cardinality text'}).`, 'error');
+      return;
+    }
+
     if (selectedFeatures.length === 0) {
       showToast('Please select at least one feature in the Feature Selector.', 'info');
       return;
@@ -182,6 +190,11 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   const handleCompareVersions = async () => {
     if (!datasetId || !selectedTarget) {
       showToast('Please select a target variable first.', 'info');
+      return;
+    }
+
+    if (currentCandidate && currentCandidate.is_suitable === false) {
+      showToast(`Cannot compare: "${selectedTarget}" is ineligible (${currentCandidate.suitability_reason || 'ID or high-cardinality text'}).`, 'error');
       return;
     }
 
@@ -346,7 +359,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
             )}
             <button
               onClick={handleTrain}
-              disabled={isTraining || !selectedTarget || selectedFeatures.length === 0}
+              disabled={isTraining || !selectedTarget || selectedFeatures.length === 0 || currentCandidate?.is_suitable === false}
               className="btn-primary"
               style={{
                 display: 'flex',
@@ -354,7 +367,8 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                 gap: '8px',
                 padding: '9px 20px',
                 fontSize: '0.88rem',
-                opacity: isTraining || selectedFeatures.length === 0 ? 0.7 : 1
+                opacity: isTraining || selectedFeatures.length === 0 || currentCandidate?.is_suitable === false ? 0.6 : 1,
+                cursor: currentCandidate?.is_suitable === false ? 'not-allowed' : 'pointer'
               }}
             >
               {isTraining ? (
@@ -384,8 +398,11 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         }}>
           {/* Target Variable Selector */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Target Column
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <span>Target Column</span>
+              <span style={{ fontSize: '0.7rem', color: '#10B981', fontWeight: 500, textTransform: 'none' }}>
+                Failsafe Protected
+              </span>
             </label>
             <select
               value={selectedTarget}
@@ -393,13 +410,37 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
               className="input-select"
               style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
             >
-              {safeCandidates.map((c) => (
-                <option key={c.column} value={c.column}>
-                  {c.column} ({c.task_type.toUpperCase()} • {c.data_type})
-                </option>
-              ))}
+              <optgroup label="✅ Recommended Prediction Targets">
+                {safeCandidates.filter((c) => c.is_suitable !== false).map((c) => (
+                  <option key={c.column} value={c.column}>
+                    {c.column} ({c.task_type.toUpperCase()} • {c.data_type})
+                  </option>
+                ))}
+              </optgroup>
+              {safeCandidates.some((c) => c.is_suitable === false) && (
+                <optgroup label="⚠️ Ineligible as Target (IDs / Names / Free Text)">
+                  {safeCandidates.filter((c) => c.is_suitable === false).map((c) => (
+                    <option key={c.column} value={c.column} disabled={true}>
+                      {c.column} ({c.suitability_reason || 'Ineligible'})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
-            {currentCandidate && (
+            {currentCandidate && currentCandidate.is_suitable === false ? (
+              <div style={{
+                marginTop: '6px',
+                padding: '6px 8px',
+                borderRadius: '6px',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#F87171',
+                fontSize: '0.73rem',
+                lineHeight: 1.3
+              }}>
+                ⚠️ <strong>Ineligible Target:</strong> {currentCandidate.suitability_reason || 'Identifiers or high-cardinality text cannot be predicted.'}
+              </div>
+            ) : currentCandidate ? (
               <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{
                   fontSize: '0.7rem',
@@ -416,7 +457,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                   {currentCandidate.unique_values} unique values
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Model Type Selector */}

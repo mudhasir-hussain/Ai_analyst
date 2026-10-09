@@ -9,6 +9,7 @@ from core.config import settings
 from core.exceptions import ResourceNotFoundError, ValidationError
 from core.supabase_client import supabase
 from models.schemas import (
+    MLTargetCandidate,
     MLTrainRequest,
     MLTrainResponse,
     MLCompareRequest,
@@ -81,7 +82,7 @@ def _load_dataframe_for_version(
     return df, v_num
 
 
-@router.get("/targets", response_model=List[Dict[str, Any]], status_code=status.HTTP_200_OK)
+@router.get("/targets", response_model=List[MLTargetCandidate], status_code=status.HTTP_200_OK)
 def get_ml_target_candidates(
     dataset_id: UUID,
     current_user = Depends(get_current_user)
