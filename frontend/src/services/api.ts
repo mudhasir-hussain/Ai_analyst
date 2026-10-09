@@ -339,11 +339,12 @@ export const api = {
   },
 
   // 17. ML Impact Lab & Pedagogical Model Engine
-  async getMLTargets(datasetId: string): Promise<{ dataset_id: string; candidates: MLTargetCandidate[] }> {
+  async getMLTargets(datasetId: string): Promise<MLTargetCandidate[]> {
     const res = await fetch(`${API_BASE}/datasets/${datasetId}/ml/targets`, {
       headers: { ...getAuthHeader() }
     });
-    return handleResponse<{ dataset_id: string; candidates: MLTargetCandidate[] }>(res);
+    const data = await handleResponse<any>(res);
+    return Array.isArray(data) ? data : (data?.candidates || []);
   },
 
   async trainMLModel(datasetId: string, req: MLTrainRequest): Promise<MLTrainResponse> {

@@ -55,19 +55,21 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
 
     let isMounted = true;
     api.getMLTargets(datasetId)
-      .then((res) => {
+      .then((res: any) => {
         if (!isMounted) return;
-        setCandidates(res.candidates);
-        if (res.candidates.length > 0) {
-          const firstTarget = res.candidates[0].column;
+        const list: MLTargetCandidate[] = Array.isArray(res) ? res : (res?.candidates || []);
+        setCandidates(list);
+        if (list.length > 0) {
+          const firstTarget = list[0].column;
           setSelectedTarget(firstTarget);
           // Initialize selected features to all other candidate columns
-          const otherCols = res.candidates.map((c) => c.column).filter((c) => c !== firstTarget);
+          const otherCols = list.map((c) => c.column).filter((c) => c !== firstTarget);
           setSelectedFeatures(otherCols);
         }
       })
       .catch((err) => {
         console.error("Failed to fetch ML targets:", err);
+        if (isMounted) setCandidates([]);
       });
 
     return () => {
@@ -75,20 +77,22 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
     };
   }, [datasetId, activeVersionNumber]);
 
+  const safeCandidates = Array.isArray(candidates) ? candidates : [];
+
   // When selectedTarget changes, update available and selected features if needed
   useEffect(() => {
-    if (candidates.length > 0 && selectedTarget) {
-      const validFeatures = candidates.map((c) => c.column).filter((c) => c !== selectedTarget);
+    if (safeCandidates.length > 0 && selectedTarget) {
+      const validFeatures = safeCandidates.map((c) => c.column).filter((c) => c !== selectedTarget);
       setSelectedFeatures((prev) => {
         const filtered = prev.filter((col) => col !== selectedTarget && validFeatures.includes(col));
         return filtered.length > 0 ? filtered : validFeatures;
       });
     }
-  }, [selectedTarget]);
+  }, [selectedTarget, safeCandidates.length]);
 
-  const currentCandidate = candidates.find((c) => c.column === selectedTarget);
+  const currentCandidate = safeCandidates.find((c) => c.column === selectedTarget);
   const taskType = currentCandidate?.task_type || 'regression';
-  const availableFeatures = candidates.filter((c) => c.column !== selectedTarget);
+  const availableFeatures = safeCandidates.filter((c) => c.column !== selectedTarget);
 
   // Feature Selection Helpers
   const toggleFeature = (col: string) => {
@@ -356,7 +360,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
               className="input-select"
               style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
             >
-              {candidates.map((c) => (
+              {safeCandidates.map((c) => (
                 <option key={c.column} value={c.column}>
                   {c.column} ({c.task_type.toUpperCase()} • {c.data_type})
                 </option>
