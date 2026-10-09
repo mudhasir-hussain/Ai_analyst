@@ -7,11 +7,13 @@ from sklearn.metrics import (
     accuracy_score,
     precision_score,
     recall_score,
-    f1_score
+    f1_score,
+    confusion_matrix
 )
 from models.schemas import (
     MLTrainResponse,
     MLEvaluationMetrics,
+    MLConfusionMatrix,
     MLPredictionPoint,
     MLFeatureImportance,
     MLLossEpochPoint
@@ -164,6 +166,19 @@ def evaluate_model_pedagogy(
             "💡 Data Action: Run 'Remove Duplicate Rows' and 'Handle Outliers (IQR Clip)' to observe the overfitting gap close."
         )
 
+    conf_matrix: Optional[MLConfusionMatrix] = None
+    if task_type != "regression":
+        try:
+            labels_unique = np.unique(np.concatenate([y_test, y_test_pred]))
+            cm = confusion_matrix(y_test, y_test_pred, labels=labels_unique)
+            conf_matrix = MLConfusionMatrix(
+                labels=[str(lbl) for lbl in labels_unique],
+                matrix=[[int(val) for val in row] for row in cm],
+                total_samples=int(len(y_test))
+            )
+        except Exception:
+            conf_matrix = None
+
     metrics = MLEvaluationMetrics(
         task_type=task_type,
         train_score=train_score,
@@ -172,7 +187,8 @@ def evaluate_model_pedagogy(
         overfitting_status=overfitting_status,
         overfitting_explanation=overfitting_explanation,
         regression_metrics=regression_metrics,
-        classification_metrics=classification_metrics
+        classification_metrics=classification_metrics,
+        confusion_matrix=conf_matrix
     )
 
     return MLTrainResponse(

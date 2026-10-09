@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import pandas as pd
 from models.schemas import MLCompareResponse
 from .trainer import train_model_on_dataframe
@@ -11,7 +11,8 @@ def compare_model_across_dataframes(
     model_type: str = "linear_regression",
     base_version_number: int = 1,
     target_version_number: int = 2,
-    hyperparameters: Optional[Dict[str, Any]] = None
+    hyperparameters: Optional[Dict[str, Any]] = None,
+    selected_features: Optional[List[str]] = None
 ) -> MLCompareResponse:
     """
     Trains the same model architecture on two dataset versions (e.g. Raw v1 vs Cleaned v2)
@@ -22,7 +23,8 @@ def compare_model_across_dataframes(
         target_col=target_column,
         model_type=model_type,
         hyperparameters=hyperparameters,
-        version_number=base_version_number
+        version_number=base_version_number,
+        selected_features=selected_features
     )
 
     target_result = train_model_on_dataframe(
@@ -30,7 +32,8 @@ def compare_model_across_dataframes(
         target_col=target_column,
         model_type=model_type,
         hyperparameters=hyperparameters,
-        version_number=target_version_number
+        version_number=target_version_number,
+        selected_features=selected_features
     )
 
     score_delta = float(round(target_result.metrics.test_score - base_result.metrics.test_score, 4))

@@ -117,7 +117,8 @@ def train_ml_model(
         model_type=payload.model_type,
         test_size=payload.test_size,
         hyperparameters=payload.hyperparameters,
-        version_number=v_num
+        version_number=v_num,
+        selected_features=payload.selected_features
     )
 
 
@@ -151,7 +152,8 @@ def compare_ml_across_versions(
         model_type=payload.model_type,
         base_version_number=actual_base_vnum,
         target_version_number=actual_target_vnum,
-        hyperparameters=payload.hyperparameters
+        hyperparameters=payload.hyperparameters,
+        selected_features=payload.selected_features
     )
 
 

@@ -30,19 +30,24 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   const [maxDepth, setMaxDepth] = useState<number | null>(3);
   const [isUnconstrainedDepth, setIsUnconstrainedDepth] = useState<boolean>(false);
 
+  // Feature Selection What-If Sandbox State
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
+  const [isFeatureSelectorOpen, setIsFeatureSelectorOpen] = useState<boolean>(false);
+
   // Results State
   const [trainResult, setTrainResult] = useState<MLTrainResponse | null>(null);
   const [compareResult, setCompareResult] = useState<MLCompareResponse | null>(null);
   const [isTraining, setIsTraining] = useState<boolean>(false);
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [selectedBaseVersion, setSelectedBaseVersion] = useState<number>(1);
-  const [activeVizTab, setActiveVizTab] = useState<'loss' | 'actual_vs_pred' | 'features' | 'overfitting'>('overfitting');
+  const [activeVizTab, setActiveVizTab] = useState<'loss' | 'actual_vs_pred' | 'features' | 'overfitting' | 'confusion_matrix'>('overfitting');
 
   // Load target candidates when datasetId changes
   useEffect(() => {
     if (!datasetId) {
       setCandidates([]);
       setSelectedTarget('');
+      setSelectedFeatures([]);
       setTrainResult(null);
       setCompareResult(null);
       return;
@@ -54,8 +59,11 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         if (!isMounted) return;
         setCandidates(res.candidates);
         if (res.candidates.length > 0) {
-          // Default to first candidate
-          setSelectedTarget(res.candidates[0].column);
+          const firstTarget = res.candidates[0].column;
+          setSelectedTarget(firstTarget);
+          // Initialize selected features to all other candidate columns
+          const otherCols = res.candidates.map((c) => c.column).filter((c) => c !== firstTarget);
+          setSelectedFeatures(otherCols);
         }
       })
       .catch((err) => {
@@ -67,13 +75,55 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
     };
   }, [datasetId, activeVersionNumber]);
 
+  // When selectedTarget changes, update available and selected features if needed
+  useEffect(() => {
+    if (candidates.length > 0 && selectedTarget) {
+      const validFeatures = candidates.map((c) => c.column).filter((c) => c !== selectedTarget);
+      setSelectedFeatures((prev) => {
+        const filtered = prev.filter((col) => col !== selectedTarget && validFeatures.includes(col));
+        return filtered.length > 0 ? filtered : validFeatures;
+      });
+    }
+  }, [selectedTarget]);
+
   const currentCandidate = candidates.find((c) => c.column === selectedTarget);
   const taskType = currentCandidate?.task_type || 'regression';
+  const availableFeatures = candidates.filter((c) => c.column !== selectedTarget);
+
+  // Feature Selection Helpers
+  const toggleFeature = (col: string) => {
+    setSelectedFeatures((prev) => {
+      if (prev.includes(col)) {
+        if (prev.length <= 1) {
+          showToast('At least one feature must remain selected.', 'info');
+          return prev;
+        }
+        return prev.filter((f) => f !== col);
+      } else {
+        return [...prev, col];
+      }
+    });
+  };
+
+  const selectAllFeatures = () => {
+    setSelectedFeatures(availableFeatures.map((c) => c.column));
+  };
+
+  const deselectAllFeatures = () => {
+    if (availableFeatures.length > 0) {
+      setSelectedFeatures([availableFeatures[0].column]);
+    }
+  };
 
   // Handler: Train Model
   const handleTrain = async () => {
     if (!datasetId || !selectedTarget) {
       showToast('Please select a target variable first.', 'info');
+      return;
+    }
+
+    if (selectedFeatures.length === 0) {
+      showToast('Please select at least one feature in the Feature Selector.', 'info');
       return;
     }
 
@@ -92,14 +142,17 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         target_column: selectedTarget,
         model_type: modelType,
         test_size: testSize,
-        hyperparameters
+        hyperparameters,
+        selected_features: selectedFeatures
       });
 
       setTrainResult(res);
       showToast(`Trained ${res.model_name} successfully!`, 'success');
 
-      // Auto-switch viz tab depending on model
-      if (res.loss_curve && res.loss_curve.length > 0) {
+      // Auto-switch viz tab depending on model and metrics
+      if (res.metrics.confusion_matrix) {
+        setActiveVizTab('confusion_matrix');
+      } else if (res.loss_curve && res.loss_curve.length > 0) {
         setActiveVizTab('loss');
       } else {
         setActiveVizTab('overfitting');
@@ -130,7 +183,8 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         model_type: modelType,
         base_version_number: selectedBaseVersion,
         target_version_number: activeVersionNumber,
-        hyperparameters
+        hyperparameters,
+        selected_features: selectedFeatures
       });
 
       setCompareResult(res);
@@ -206,7 +260,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
           Machine Learning Impact Studio
         </h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6, marginBottom: '28px', maxWidth: '580px', margin: '0 auto 28px auto' }}>
-          Experience first-hand how raw, uncleaned data (missing values, extreme outliers, duplicate rows) degrades model performance and causes severe overfitting. Train models directly and benchmark raw vs. cleaned versions.
+          Experience first-hand how raw, uncleaned data (missing values, extreme outliers, duplicate rows) degrades model performance and causes severe overfitting. Train models directly, toggle input features in the What-If Sandbox, inspect confusion matrices, and benchmark raw vs. cleaned versions.
         </p>
         {onLoadSample && (
           <button onClick={onLoadSample} className="btn-primary" style={{ padding: '10px 24px', fontSize: '0.9rem' }}>
@@ -218,6 +272,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   }
 
   const statusBadge = getStatusBadge(trainResult?.metrics.overfitting_status);
+  const confMatrix = trainResult?.metrics.confusion_matrix;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
@@ -247,14 +302,14 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
               </span>
             </div>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, maxWidth: '720px' }}>
-              Train lightweight Scikit-Learn models in real-time, inspect overfitting gaps, observe neural loss convergence, and measure how data cleaning unlocks model generalization.
+              Train lightweight Scikit-Learn models in real-time, inspect overfitting gaps, observe neural loss convergence, test feature subsets in the What-If sandbox, and measure how data cleaning unlocks model generalization.
             </p>
           </div>
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <button
               onClick={handleTrain}
-              disabled={isTraining || !selectedTarget}
+              disabled={isTraining || !selectedTarget || selectedFeatures.length === 0}
               className="btn-primary"
               style={{
                 display: 'flex',
@@ -262,7 +317,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                 gap: '8px',
                 padding: '9px 20px',
                 fontSize: '0.88rem',
-                opacity: isTraining ? 0.7 : 1
+                opacity: isTraining || selectedFeatures.length === 0 ? 0.7 : 1
               }}
             >
               {isTraining ? (
@@ -417,6 +472,142 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Feature Selector & What-If Sandbox (Collapsible Section) */}
+        <div style={{
+          marginTop: '18px',
+          paddingTop: '16px',
+          borderTop: '1px solid var(--border-subtle)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <button
+              onClick={() => setIsFeatureSelectorOpen(!isFeatureSelectorOpen)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                padding: '4px 0',
+                fontSize: '0.86rem',
+                fontWeight: 600
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                style={{
+                  transform: isFeatureSelectorOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease'
+                }}
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <span>Feature Selection & What-If Sandbox</span>
+              <span style={{
+                fontSize: '0.72rem',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                background: selectedFeatures.length === availableFeatures.length ? 'rgba(37, 99, 235, 0.2)' : 'rgba(217, 119, 6, 0.2)',
+                color: selectedFeatures.length === availableFeatures.length ? '#60A5FA' : '#FBBF24',
+                fontWeight: 600
+              }}>
+                {selectedFeatures.length} / {availableFeatures.length} Features Active
+              </span>
+            </button>
+
+            {isFeatureSelectorOpen && (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  onClick={selectAllFeatures}
+                  className="btn-secondary"
+                  style={{ padding: '3px 10px', fontSize: '0.74rem' }}
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={deselectAllFeatures}
+                  className="btn-secondary"
+                  style={{ padding: '3px 10px', fontSize: '0.74rem' }}
+                >
+                  Reset (1 Feature)
+                </button>
+              </div>
+            )}
+          </div>
+
+          {isFeatureSelectorOpen && (
+            <div style={{
+              marginTop: '14px',
+              padding: '14px 16px',
+              background: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.5 }}>
+                💡 <strong>Pedagogical Sandbox:</strong> Check or uncheck individual columns to observe how removing noisy, redundant, or leaky features directly affects test holdout generalization and closes the overfitting gap.
+              </p>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gap: '10px',
+                maxHeight: '220px',
+                overflowY: 'auto',
+                paddingRight: '6px'
+              }}>
+                {availableFeatures.map((cand) => {
+                  const isChecked = selectedFeatures.includes(cand.column);
+                  return (
+                    <label
+                      key={cand.column}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: isChecked ? 'rgba(37, 99, 235, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                        border: isChecked ? '1px solid rgba(37, 99, 235, 0.4)' : '1px solid var(--border-subtle)',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'background 0.15s ease'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleFeature(cand.column)}
+                        style={{ accentColor: 'var(--brand-primary)', cursor: 'pointer' }}
+                      />
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        <span style={{ fontSize: '0.8rem', color: isChecked ? '#FFFFFF' : 'var(--text-secondary)', fontWeight: isChecked ? 600 : 400 }}>
+                          {cand.column}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: '0.65rem',
+                        color: 'var(--text-muted)',
+                        textTransform: 'uppercase',
+                        padding: '1px 4px',
+                        borderRadius: '3px',
+                        background: 'rgba(255,255,255,0.05)'
+                      }}>
+                        {cand.data_type.startsWith('int') || cand.data_type.startsWith('float') ? 'num' : 'cat'}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2. Training Results Section */}
@@ -545,7 +736,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
           <div className="card" style={{ padding: '24px' }}>
             {/* Visualizer Nav Tabs */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setActiveVizTab('overfitting')}
                   style={{
@@ -561,6 +752,24 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                 >
                   Overfitting Diagnostics
                 </button>
+
+                {confMatrix && (
+                  <button
+                    onClick={() => setActiveVizTab('confusion_matrix')}
+                    style={{
+                      background: activeVizTab === 'confusion_matrix' ? 'var(--brand-primary)' : 'transparent',
+                      color: activeVizTab === 'confusion_matrix' ? '#FFFFFF' : 'var(--text-secondary)',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '6px 14px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Confusion Matrix Heatmap
+                  </button>
+                )}
 
                 {trainResult.loss_curve && trainResult.loss_curve.length > 0 && (
                   <button
@@ -614,7 +823,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
               </div>
 
               <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                {trainResult.total_samples} samples • {trainResult.feature_count} features
+                {trainResult.total_samples} samples • {trainResult.feature_count} features active
               </span>
             </div>
 
@@ -679,6 +888,110 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                     </span>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* TAB: Confusion Matrix Heatmap (Classification) */}
+            {activeVizTab === 'confusion_matrix' && confMatrix && (
+              <div>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '6px' }}>
+                  Holdout Confusion Matrix Heatmap (Actual vs. Predicted)
+                </h4>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '20px', maxWidth: '720px' }}>
+                  Shows where classification predictions align with ground-truth labels. Diagonal cells indicate correct classifications (True Positives / True Negatives), while off-diagonal cells highlight misclassifications caused by ambiguous features or noisy samples.
+                </p>
+
+                {(() => {
+                  const maxCellVal = Math.max(...confMatrix.matrix.flatMap((row) => row), 1);
+                  return (
+                    <div style={{ maxWidth: '640px', overflowX: 'auto', paddingBottom: '10px' }}>
+                      {/* Matrix Grid */}
+                      <div style={{ display: 'inline-block', minWidth: '320px' }}>
+                        {/* Column Header Label */}
+                        <div style={{ textAlign: 'center', fontSize: '0.78rem', color: 'var(--brand-primary)', fontWeight: 600, marginBottom: '8px', letterSpacing: '0.5px' }}>
+                          PREDICTED CLASS →
+                        </div>
+
+                        {/* Top Headers */}
+                        <div style={{ display: 'grid', gridTemplateColumns: `100px repeat(${confMatrix.labels.length}, minmax(70px, 1fr))`, gap: '6px', marginBottom: '6px' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'right', paddingRight: '8px', alignSelf: 'center' }}>
+                            ACTUAL ↓
+                          </div>
+                          {confMatrix.labels.map((lbl, idx) => (
+                            <div key={idx} style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: '6px 4px', borderRadius: '4px' }}>
+                              Class {lbl}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Rows */}
+                        {confMatrix.matrix.map((row, rIdx) => (
+                          <div key={rIdx} style={{ display: 'grid', gridTemplateColumns: `100px repeat(${confMatrix.labels.length}, minmax(70px, 1fr))`, gap: '6px', marginBottom: '6px' }}>
+                            {/* Row Header */}
+                            <div style={{ textAlign: 'right', paddingRight: '8px', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', alignSelf: 'center' }}>
+                              Class {confMatrix.labels[rIdx]}
+                            </div>
+
+                            {/* Cells */}
+                            {row.map((val, cIdx) => {
+                              const isDiagonal = rIdx === cIdx;
+                              const intensity = val / maxCellVal;
+                              const bg = isDiagonal
+                                ? `rgba(16, 185, 129, ${0.15 + intensity * 0.65})`
+                                : val > 0
+                                  ? `rgba(244, 63, 94, ${0.12 + intensity * 0.55})`
+                                  : 'rgba(255, 255, 255, 0.02)';
+                              const border = isDiagonal
+                                ? '1px solid rgba(16, 185, 129, 0.4)'
+                                : val > 0
+                                  ? '1px solid rgba(244, 63, 94, 0.35)'
+                                  : '1px solid var(--border-subtle)';
+                              const textColor = isDiagonal ? '#34D399' : val > 0 ? '#F43F5E' : 'var(--text-muted)';
+
+                              return (
+                                <div
+                                  key={cIdx}
+                                  title={`Actual Class ${confMatrix.labels[rIdx]} → Predicted Class ${confMatrix.labels[cIdx]}: ${val} samples`}
+                                  style={{
+                                    background: bg,
+                                    border: border,
+                                    borderRadius: '6px',
+                                    padding: '12px 6px',
+                                    textAlign: 'center',
+                                    cursor: 'default',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                >
+                                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: textColor }}>
+                                    {val}
+                                  </div>
+                                  <div style={{ fontSize: '0.66rem', color: isDiagonal ? '#A7F3D0' : val > 0 ? '#FECDD3' : 'var(--text-muted)' }}>
+                                    {isDiagonal ? 'Match' : val > 0 ? 'Error' : 'None'}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Legend */}
+                      <div style={{ marginTop: '16px', display: 'flex', gap: '16px', alignItems: 'center', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: 'rgba(16, 185, 129, 0.6)' }} />
+                          <span>Correct Predictions (Diagonal)</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: 'rgba(244, 63, 94, 0.6)' }} />
+                          <span>Misclassifications (Off-Diagonal)</span>
+                        </div>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          • Total Test Samples: {confMatrix.total_samples}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -999,7 +1312,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
             Ready to Train Model
           </h3>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 20px auto' }}>
-            Select your target column above and click <strong>Train & Analyze Model</strong> to compute train vs. test scores, evaluate overfitting, and track loss convergence.
+            Select your target column, tune features in the What-If sandbox, and click <strong>Train & Analyze Model</strong> to compute train vs. test scores, evaluate overfitting, inspect the confusion matrix, and track loss convergence.
           </p>
         </div>
       )}
@@ -1014,18 +1327,21 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
 // This component implements the Pedagogical Machine Learning Impact Lab & Generalization Engine:
 //   1. Target Column Detection & Selection: Queries target candidate variables and auto-classifies
 //      into regression vs classification tasks.
-//   2. Model Architecture Selection: Supports Decision Trees (with tunable max_depth slider),
+//   2. Feature Selection & What-If Sandbox: Checkbox controls allowing users to toggle individual
+//      features on/off to discover which columns improve generalization and eliminate noise.
+//   3. Model Architecture Selection: Supports Decision Trees (with tunable max_depth slider),
 //      Ridge/Logistic Regression, Random Forests, and Multi-Layer Perceptron (Neural Network).
-//   3. Pedagogical Generalization Diagnostics: Color-coded health status banner
+//   4. Pedagogical Generalization Diagnostics: Color-coded health status banner
 //      (healthy_generalization, moderate_overfitting, severe_overfitting, underfitting) with
 //      backend plain-English pedagogical explanations.
-//   4. 4-KPI Metric Grid: Train score, Holdout Test score, Overfitting Gap (Δ), and RMSE/F1.
-//   5. Pure SVG Interactive Visualizations:
+//   5. 4-KPI Metric Grid: Train score, Holdout Test score, Overfitting Gap (Δ), and RMSE/F1.
+//   6. Pure SVG & Matrix Interactive Visualizations:
 //      - Overfitting diagnostics gauge (train vs test bars).
+//      - Classification Confusion Matrix Heatmap (Actual vs Predicted matrix with error highlights).
 //      - Neural network gradient descent loss curve over epochs.
 //      - Actual vs predicted scatter plot with 45-degree diagonal.
 //      - Feature importance / weight attribution horizontal bar chart.
-//   6. Cross-Version Generalization Benchmark: Side-by-side comparison of baseline raw v1 vs
+//   7. Cross-Version Generalization Benchmark: Side-by-side comparison of baseline raw v1 vs
 //      active cleaned dataset, showing performance gain (+R² / +Accuracy) and overfitting reduction.
 //
 // HOW IT CONNECTS TO OTHER FILES:

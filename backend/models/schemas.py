@@ -351,12 +351,19 @@ class AuditTimelineResponse(BaseModel):
 # 11. Machine Learning & Model Pedagogy Schemas
 # ------------------------------------------------------------------------------
 
+class MLConfusionMatrix(BaseModel):
+    labels: List[str] = Field(default_factory=list, description="Ordered class labels corresponding to matrix rows/cols.")
+    matrix: List[List[int]] = Field(default_factory=list, description="Confusion matrix where rows are actual and cols are predicted.")
+    total_samples: int = Field(0, description="Total evaluation samples in matrix.")
+
+
 class MLTrainRequest(BaseModel):
     target_column: str = Field(..., description="The dependent variable to predict.")
     model_type: str = Field("linear_regression", description="Algorithm: 'linear_regression', 'logistic_regression', 'decision_tree', 'random_forest', 'neural_network_mlp'.")
     test_size: float = Field(0.2, ge=0.1, le=0.5, description="Proportion of the dataset reserved for test holdout evaluation (0.1 to 0.5).")
     hyperparameters: Dict[str, Any] = Field(default_factory=dict, description="Model hyperparameters (e.g. max_depth, n_estimators, max_iter).")
     version_id: Optional[UUID4] = Field(None, description="Optional version to train on; defaults to active version.")
+    selected_features: Optional[List[str]] = Field(None, description="Optional explicit feature subsets selected by user.")
 
 
 class MLLossEpochPoint(BaseModel):
@@ -385,6 +392,7 @@ class MLEvaluationMetrics(BaseModel):
     overfitting_explanation: str = Field(..., description="Pedagogical explanation of why this gap occurred.")
     regression_metrics: Optional[Dict[str, float]] = Field(None, description="R2, RMSE, MAE, MAPE if regression.")
     classification_metrics: Optional[Dict[str, float]] = Field(None, description="Accuracy, Precision, Recall, F1 if classification.")
+    confusion_matrix: Optional[MLConfusionMatrix] = Field(None, description="Confusion matrix for classification tasks.")
 
 
 class MLTrainResponse(BaseModel):
@@ -408,6 +416,7 @@ class MLCompareRequest(BaseModel):
     base_version_number: int = Field(1, description="Raw / baseline version number (defaults to v1).")
     target_version_number: Optional[int] = Field(None, description="Cleaned target version number (defaults to latest active).")
     hyperparameters: Dict[str, Any] = Field(default_factory=dict)
+    selected_features: Optional[List[str]] = Field(None, description="Optional explicit feature subsets selected by user.")
 
 
 class MLCompareResponse(BaseModel):

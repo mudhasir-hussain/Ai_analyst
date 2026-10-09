@@ -173,3 +173,30 @@ def test_api_ml_endpoints(sample_ml_dataframe):
     comp_data = comp_resp.json()
     assert "score_delta" in comp_data
     assert "summary" in comp_data
+
+
+def test_feature_selection_filtering(sample_ml_dataframe):
+    res = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="revenue",
+        model_type="linear_regression",
+        selected_features=["units_sold"]
+    )
+    assert res.feature_count == 1
+    assert len(res.feature_importance) == 1
+    assert res.feature_importance[0].feature == "units_sold"
+
+
+def test_classification_confusion_matrix(sample_ml_dataframe):
+    # 'churn' is binary 0/1
+    res = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="churn",
+        model_type="logistic_regression"
+    )
+    assert res.task_type == "classification"
+    assert res.metrics.confusion_matrix is not None
+    assert len(res.metrics.confusion_matrix.labels) >= 2
+    assert len(res.metrics.confusion_matrix.matrix) >= 2
+    assert res.metrics.confusion_matrix.total_samples > 0
+

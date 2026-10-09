@@ -71,7 +71,8 @@ def get_candidate_targets(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
 def prepare_features(
     df: pd.DataFrame,
-    target_col: str
+    target_col: str,
+    selected_features: Optional[List[str]] = None
 ) -> Tuple[np.ndarray, np.ndarray, List[str], ColumnTransformer]:
     """
     Preprocesses feature columns into numeric matrices with scaling and one-hot encoding.
@@ -84,19 +85,26 @@ def prepare_features(
     y_raw = clean_df[target_col].values
     X_df = clean_df.drop(columns=[target_col])
 
+    if selected_features is not None:
+        valid_selected = [c for c in selected_features if c in X_df.columns]
+        if not valid_selected:
+            raise ValidationError("At least one selected feature must exist in the dataset.", "NO_FEATURES")
+        X_df = X_df[valid_selected]
+
     if X_df.shape[1] == 0:
         raise ValidationError("At least one feature column is required besides the target.", "NO_FEATURES")
 
-    # Drop obvious high-cardinality unique ID columns (e.g. Row ID, Transaction ID)
-    drop_candidates = []
-    for col in X_df.columns:
-        if X_df[col].nunique() == len(X_df) and not pd.api.types.is_numeric_dtype(X_df[col]):
-            drop_candidates.append(col)
-        elif pd.api.types.is_datetime64_any_dtype(X_df[col]):
-            drop_candidates.append(col)
+    # Drop obvious high-cardinality unique ID columns if not explicitly selected
+    if selected_features is None:
+        drop_candidates = []
+        for col in X_df.columns:
+            if X_df[col].nunique() == len(X_df) and not pd.api.types.is_numeric_dtype(X_df[col]):
+                drop_candidates.append(col)
+            elif pd.api.types.is_datetime64_any_dtype(X_df[col]):
+                drop_candidates.append(col)
 
-    if drop_candidates and len(drop_candidates) < X_df.shape[1]:
-        X_df = X_df.drop(columns=drop_candidates)
+        if drop_candidates and len(drop_candidates) < X_df.shape[1]:
+            X_df = X_df.drop(columns=drop_candidates)
 
     numeric_cols = [c for c in X_df.columns if pd.api.types.is_numeric_dtype(X_df[c])]
     categorical_cols = [c for c in X_df.columns if c not in numeric_cols]
@@ -152,7 +160,8 @@ def train_model_on_dataframe(
     model_type: str = "linear_regression",
     test_size: float = 0.2,
     hyperparameters: Optional[Dict[str, Any]] = None,
-    version_number: int = 1
+    version_number: int = 1,
+    selected_features: Optional[List[str]] = None
 ) -> MLTrainResponse:
     """
     Trains the chosen model on the DataFrame, tracks gradient descent loss curves
@@ -160,7 +169,7 @@ def train_model_on_dataframe(
     """
     params = hyperparameters or {}
     task_type = detect_ml_task(df, target_col)
-    X, y, feature_names, _ = prepare_features(df, target_col)
+    X, y, feature_names, _ = prepare_features(df, target_col, selected_features=selected_features)
 
     # Train / Test split
     stratify = None

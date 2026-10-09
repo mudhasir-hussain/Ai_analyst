@@ -268,6 +268,12 @@ export interface MLFeatureImportance {
   importance: number;
 }
 
+export interface MLConfusionMatrix {
+  labels: string[];
+  matrix: number[][];
+  total_samples: number;
+}
+
 export interface MLEvaluationMetrics {
   task_type: 'regression' | 'classification';
   train_score: number;
@@ -287,6 +293,7 @@ export interface MLEvaluationMetrics {
     recall: number;
     f1_score: number;
   };
+  confusion_matrix?: MLConfusionMatrix;
 }
 
 export interface MLTrainResponse {
@@ -310,6 +317,7 @@ export interface MLTrainRequest {
   test_size?: number;
   hyperparameters?: Record<string, any>;
   version_id?: string;
+  selected_features?: string[];
 }
 
 export interface MLCompareResponse {
@@ -330,6 +338,7 @@ export interface MLCompareRequest {
   base_version_number?: number;
   target_version_number?: number;
   hyperparameters?: Record<string, any>;
+  selected_features?: string[];
 }
 
 
