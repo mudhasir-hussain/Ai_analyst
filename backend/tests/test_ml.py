@@ -200,3 +200,67 @@ def test_classification_confusion_matrix(sample_ml_dataframe):
     assert len(res.metrics.confusion_matrix.matrix) >= 2
     assert res.metrics.confusion_matrix.total_samples > 0
 
+
+def test_train_gradient_boosting(sample_ml_dataframe):
+    # Test regression with staged loss curve
+    res_reg = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="revenue",
+        model_type="gradient_boosting",
+        hyperparameters={"n_estimators": 25, "max_depth": 3}
+    )
+    assert res_reg.task_type == "regression"
+    assert "Gradient Boosting" in res_reg.model_name
+    assert len(res_reg.loss_curve) == 25
+    assert len(res_reg.feature_importance) > 0
+    assert any("Gradient Boosting" in t for t in res_reg.educational_takeaways)
+
+    # Test classification
+    res_clf = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="churn",
+        model_type="gradient_boosting",
+        hyperparameters={"n_estimators": 20}
+    )
+    assert res_clf.task_type == "classification"
+    assert res_clf.metrics.classification_metrics is not None
+    assert len(res_clf.loss_curve) == 20
+
+
+def test_train_knn(sample_ml_dataframe):
+    res = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="churn",
+        model_type="knn",
+        hyperparameters={"n_neighbors": 3}
+    )
+    assert res.task_type == "classification"
+    assert "K-Nearest Neighbors" in res.model_name
+    assert res.metrics.classification_metrics is not None
+    assert any("K-Nearest Neighbors" in t for t in res.educational_takeaways)
+
+
+def test_train_svm(sample_ml_dataframe):
+    # Classification with RBF kernel
+    res_clf = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="churn",
+        model_type="svm",
+        hyperparameters={"kernel": "rbf", "C": 1.0}
+    )
+    assert res_clf.task_type == "classification"
+    assert "Support Vector" in res_clf.model_name
+    assert res_clf.metrics.classification_metrics is not None
+    assert any("Support Vector" in t for t in res_clf.educational_takeaways)
+
+    # Regression with linear kernel
+    res_reg = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="revenue",
+        model_type="svm",
+        hyperparameters={"kernel": "linear", "C": 1.0}
+    )
+    assert res_reg.task_type == "regression"
+    assert "Support Vector" in res_reg.model_name
+
+

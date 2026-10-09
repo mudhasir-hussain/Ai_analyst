@@ -9,7 +9,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge, LogisticRegression
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestRegressor, RandomForestClassifier,
+    GradientBoostingRegressor, GradientBoostingClassifier
+)
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
+from sklearn.svm import SVR, SVC
 from sklearn.neural_network import MLPRegressor, MLPClassifier
 
 from models.schemas import (
@@ -253,6 +258,58 @@ def train_model_on_dataframe(
             )
             model_name = f"Multi-Layer Perceptron Classifier (NN: {hidden_layers[0]}x{hidden_layers[1]})"
 
+    # 5. Gradient Boosting Decision Trees (GBDT)
+    elif model_key in {"gradient_boosting", "gbdt", "gradient_boost"}:
+        n_estimators = int(params.get("n_estimators", 45))
+        max_depth = params.get("max_depth")
+        if max_depth is not None and str(max_depth).isdigit():
+            max_depth = int(max_depth)
+        else:
+            max_depth = 3
+        learning_rate = float(params.get("learning_rate", 0.1))
+
+        if task_type == "regression":
+            model = GradientBoostingRegressor(
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                learning_rate=learning_rate,
+                random_state=42
+            )
+            model_name = f"Gradient Boosting Regressor ({n_estimators} Trees, Depth: {max_depth})"
+        else:
+            model = GradientBoostingClassifier(
+                n_estimators=n_estimators,
+                max_depth=max_depth,
+                learning_rate=learning_rate,
+                random_state=42
+            )
+            model_name = f"Gradient Boosting Classifier ({n_estimators} Trees, Depth: {max_depth})"
+
+    # 6. K-Nearest Neighbors (KNN Distance-Based)
+    elif model_key in {"knn", "k_nearest_neighbors", "kneighbors"}:
+        raw_k = int(params.get("n_neighbors", 5))
+        # Ensure k is valid for sample size
+        n_neighbors = max(1, min(raw_k, max(1, len(X_train) - 1)))
+
+        if task_type == "regression":
+            model = KNeighborsRegressor(n_neighbors=n_neighbors, weights="distance")
+            model_name = f"K-Nearest Neighbors Regressor (K={n_neighbors})"
+        else:
+            model = KNeighborsClassifier(n_neighbors=n_neighbors, weights="distance")
+            model_name = f"K-Nearest Neighbors Classifier (K={n_neighbors})"
+
+    # 7. Support Vector Machine (SVM / SVR)
+    elif model_key in {"svm", "svc", "svr", "support_vector_machine"}:
+        c_param = float(params.get("C", 1.0))
+        kernel = str(params.get("kernel", "rbf"))
+
+        if task_type == "regression":
+            model = SVR(C=c_param, kernel=kernel)
+            model_name = f"Support Vector Regressor (SVR, kernel={kernel})"
+        else:
+            model = SVC(C=c_param, kernel=kernel, probability=True, random_state=42)
+            model_name = f"Support Vector Classifier (SVC, kernel={kernel})"
+
     else:
         # Default fallback
         if task_type == "regression":
@@ -265,13 +322,22 @@ def train_model_on_dataframe(
     # Fit Model
     model.fit(X_train, y_train)
 
-    # Extract Neural Network Gradient Descent Loss Curve
+    # Extract Neural Network or Gradient Boosting Loss Curves
     if hasattr(model, "loss_curve_"):
         raw_losses = getattr(model, "loss_curve_", [])
         for epoch_idx, l_val in enumerate(raw_losses, 1):
             loss_curve_points.append(
                 MLLossEpochPoint(
                     epoch=epoch_idx,
+                    loss=float(round(l_val, 4))
+                )
+            )
+    elif hasattr(model, "train_score_"):
+        raw_losses = getattr(model, "train_score_", [])
+        for stage_idx, l_val in enumerate(raw_losses, 1):
+            loss_curve_points.append(
+                MLLossEpochPoint(
+                    epoch=stage_idx,
                     loss=float(round(l_val, 4))
                 )
             )
@@ -333,9 +399,10 @@ def train_model_on_dataframe(
 #   2. 'get_candidate_targets': Inspects all dataset columns and suggests suitable prediction targets.
 #   3. 'prepare_features': Cleans and encodes feature matrices with Median Imputation,
 #      One-Hot Encoding, and Standard Scaling.
-#   4. 'train_model_on_dataframe': Fits Scikit-Learn models (Ridge, DecisionTree,
-#      RandomForest, and MLP Neural Networks), captures per-epoch gradient descent loss curves,
-#      computes feature importances, and invokes 'evaluate_model_pedagogy'.
+#   4. 'train_model_on_dataframe': Fits Scikit-Learn models (Ridge/Logistic, DecisionTree,
+#      RandomForest, Gradient Boosting GBDT, K-Nearest Neighbors, Support Vector Machines,
+#      and MLP Neural Networks), captures iterative/per-epoch loss curves, computes feature
+#      importances, and invokes 'evaluate_model_pedagogy'.
 #
 # HOW IT CONNECTS TO OTHER FILES:
 # - Invoked by 'backend/api/ml.py' and 'backend/services/ml/comparator.py'.

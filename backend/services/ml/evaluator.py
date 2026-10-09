@@ -150,6 +150,21 @@ def evaluate_model_pedagogy(
             "Random Forests mitigate overfitting through bagging (bootstrap aggregation), averaging multiple decorrelated trees "
             "to produce smoother decision boundaries and lower variance."
         )
+    elif "gradient_boosting" in model_type or "gbdt" in model_type:
+        takeaways.append(
+            "Gradient Boosting constructs decision trees sequentially, with each tree correcting the residual errors "
+            "of the previous ones. Notice how the staged loss/deviance drops iteration by iteration in the Loss Curve tab."
+        )
+    elif "knn" in model_type or "k_nearest_neighbors" in model_type:
+        takeaways.append(
+            "K-Nearest Neighbors is an instance-based distance learner. Without feature standardization or when extreme "
+            "outliers exist, high-magnitude dimensions dominate Euclidean distances, severely degrading neighbor queries."
+        )
+    elif "svm" in model_type or "svc" in model_type or "svr" in model_type:
+        takeaways.append(
+            "Support Vector Machines construct optimal maximum-margin separating hyperplanes. Noise and outlier points "
+            "situated near decision boundaries can misplace the margin and destabilize classification confidence."
+        )
     elif "mlp" in model_type or "neural_network" in model_type:
         takeaways.append(
             "Neural Networks rely on backpropagation and gradient descent. Unscaled features or extreme outliers cause gradients "

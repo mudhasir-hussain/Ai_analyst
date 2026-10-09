@@ -359,7 +359,7 @@ class MLConfusionMatrix(BaseModel):
 
 class MLTrainRequest(BaseModel):
     target_column: str = Field(..., description="The dependent variable to predict.")
-    model_type: str = Field("linear_regression", description="Algorithm: 'linear_regression', 'logistic_regression', 'decision_tree', 'random_forest', 'neural_network_mlp'.")
+    model_type: str = Field("linear_regression", description="Algorithm: 'linear_regression', 'logistic_regression', 'decision_tree', 'random_forest', 'gradient_boosting', 'knn', 'svm', 'neural_network_mlp'.")
     test_size: float = Field(0.2, ge=0.1, le=0.5, description="Proportion of the dataset reserved for test holdout evaluation (0.1 to 0.5).")
     hyperparameters: Dict[str, Any] = Field(default_factory=dict, description="Model hyperparameters (e.g. max_depth, n_estimators, max_iter).")
     version_id: Optional[UUID4] = Field(None, description="Optional version to train on; defaults to active version.")

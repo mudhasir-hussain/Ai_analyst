@@ -31,6 +31,8 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   const [testSize, setTestSize] = useState<number>(0.2);
   const [maxDepth, setMaxDepth] = useState<number | null>(3);
   const [isUnconstrainedDepth, setIsUnconstrainedDepth] = useState<boolean>(false);
+  const [knnNeighbors, setKnnNeighbors] = useState<number>(5);
+  const [svmKernel, setSvmKernel] = useState<string>('rbf');
 
   // Feature Selection What-If Sandbox State
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
@@ -137,11 +139,17 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
     setCompareResult(null);
     try {
       const hyperparameters: Record<string, any> = {};
-      if (modelType === 'decision_tree' || modelType === 'random_forest') {
+      if (modelType === 'decision_tree' || modelType === 'random_forest' || modelType === 'gradient_boosting') {
         hyperparameters.max_depth = isUnconstrainedDepth ? null : maxDepth;
       }
       if (modelType === 'neural_net') {
         hyperparameters.max_iter = 120;
+      }
+      if (modelType === 'knn') {
+        hyperparameters.n_neighbors = knnNeighbors;
+      }
+      if (modelType === 'svm') {
+        hyperparameters.kernel = svmKernel;
       }
 
       const res = await api.trainMLModel(datasetId, {
@@ -180,8 +188,14 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
     setIsComparing(true);
     try {
       const hyperparameters: Record<string, any> = {};
-      if (modelType === 'decision_tree' || modelType === 'random_forest') {
+      if (modelType === 'decision_tree' || modelType === 'random_forest' || modelType === 'gradient_boosting') {
         hyperparameters.max_depth = isUnconstrainedDepth ? null : maxDepth;
+      }
+      if (modelType === 'knn') {
+        hyperparameters.n_neighbors = knnNeighbors;
+      }
+      if (modelType === 'svm') {
+        hyperparameters.kernel = svmKernel;
       }
 
       const res = await api.compareMLVersions(datasetId, {
@@ -417,22 +431,28 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
               style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
             >
               <option value="decision_tree">Decision Tree (Overfitting Demo)</option>
+              <option value="random_forest">Random Forest (Bagging Ensemble)</option>
+              <option value="gradient_boosting">Gradient Boosting (Boosting Ensemble)</option>
               <option value="linear">
                 {taskType === 'regression' ? 'Linear Ridge Regression' : 'Logistic Regression'}
               </option>
-              <option value="random_forest">Random Forest (Ensemble)</option>
+              <option value="knn">K-Nearest Neighbors (Distance-Based)</option>
+              <option value="svm">Support Vector Machine (Maximum-Margin)</option>
               <option value="neural_net">Neural Network (MLP Backprop)</option>
             </select>
             <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', display: 'block', marginTop: '6px' }}>
-              {modelType === 'decision_tree' && 'Sensitive to duplicate data & outliers'}
-              {modelType === 'linear' && 'Baseline linear decision surface'}
-              {modelType === 'random_forest' && 'Bagging ensemble reduces variance'}
+              {modelType === 'decision_tree' && 'Sensitive to duplicate data & outliers; demonstrates tree memorization'}
+              {modelType === 'linear' && 'Baseline linear model; sensitive to extreme outlier leverage'}
+              {modelType === 'random_forest' && 'Bagging ensemble reduces variance across multiple decorrelated trees'}
+              {modelType === 'gradient_boosting' && 'Sequential boosting; minimizes residual deviance step-by-step'}
+              {modelType === 'knn' && 'Instance distance learner; very sensitive to unscaled features & noise'}
+              {modelType === 'svm' && 'Maximizes separating margin; boundary vectors vulnerable to outlier points'}
               {modelType === 'neural_net' && 'Multi-layer backpropagation loss curve'}
             </span>
           </div>
 
-          {/* Decision Tree Max Depth Slider */}
-          {(modelType === 'decision_tree' || modelType === 'random_forest') && (
+          {/* Decision Tree / Ensemble Max Depth Slider */}
+          {(modelType === 'decision_tree' || modelType === 'random_forest' || modelType === 'gradient_boosting') && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                 <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -468,6 +488,51 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                   ⚠️ Unlimited depth: Model will fully memorize training duplicates.
                 </div>
               )}
+            </div>
+          )}
+
+          {/* KNN Hyperparameter: K Neighbors */}
+          {modelType === 'knn' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Neighbors (K)
+                </label>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  {knnNeighbors} Neighbors
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="15"
+                step="1"
+                value={knnNeighbors}
+                onChange={(e) => setKnnNeighbors(parseInt(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--brand-primary)' }}
+              />
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                Low K (e.g. 1-2) overfits to noise; Higher K yields smoother decision boundaries.
+              </span>
+            </div>
+          )}
+
+          {/* SVM Hyperparameter: Kernel Function */}
+          {modelType === 'svm' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Kernel Function
+              </label>
+              <select
+                value={svmKernel}
+                onChange={(e) => setSvmKernel(e.target.value)}
+                className="input-select"
+                style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
+              >
+                <option value="rbf">RBF (Radial Basis - Non-Linear)</option>
+                <option value="linear">Linear (Flat Hyperplane)</option>
+                <option value="poly">Polynomial (Degree 3)</option>
+              </select>
             </div>
           )}
 
