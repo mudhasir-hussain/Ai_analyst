@@ -7,6 +7,7 @@ from core.auth import get_current_user
 from core.exceptions import AppException
 from api.datasets import router as datasets_router
 from api.reports import router as reports_router
+from api.ml import router as ml_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ai_analyst_backend")
@@ -38,6 +39,7 @@ async def app_exception_handler(request: Request, exc: AppException):
 
 app.include_router(datasets_router)
 app.include_router(reports_router)
+app.include_router(ml_router)
 
 @app.get("/health", tags=["System"])
 def health_check():

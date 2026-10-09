@@ -21,10 +21,11 @@ import { AIAssistantPanel } from './components/AIAssistantPanel';
 import { VisualizationsTab } from './components/VisualizationsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { VersionHistoryDrawer } from './components/VersionHistoryDrawer';
+import { MLLabTab } from './components/MLLabTab';
 import { getSampleDatasetFile } from './data/sampleDataset';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'table' | 'health' | 'visualizations' | 'reports' | 'history'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'health' | 'visualizations' | 'reports' | 'history' | 'ml'>('table');
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [versions, setVersions] = useState<DatasetVersion[]>([]);
   const [activeVersion, setActiveVersion] = useState<DatasetVersion | null>(null);
@@ -415,6 +416,17 @@ export function App() {
                 isProcessing={isProcessing}
               />
             )}
+
+            {/* Tab: ML Studio */}
+            {activeTab === 'ml' && (
+              <MLLabTab
+                datasetId={dataset?.id}
+                versions={versions}
+                activeVersionNumber={activeVersion?.version_number}
+                onLoadSample={handleLoadSample}
+                showToast={showToast}
+              />
+            )}
           </div>
         </main>
 
@@ -449,12 +461,13 @@ export default App;
 // This is the root React application orchestrator:
 //   1. Manages top-level state: active dataset, sequential versions, health audit,
 //      statistical profile, chart visualizations, executive reports, and audit timeline.
-//   2. Coordinates navigation across 5 core views:
+//   2. Coordinates navigation across 6 core views:
 //      - 'table': Spreadsheet DataTable and TransformToolbar (15 deterministic operations).
 //      - 'health': Radial 0-100 quality scorecard and remediation recommendations.
 //      - 'visualizations': Smart chart recommendations and custom SVG chart builder.
 //      - 'reports': Executive narrative reports and binary CSV/XLSX file downloads.
 //      - 'history': Version lineage tree, semantic diff viewer, and safe rollback restore.
+//      - 'ml': Machine Learning Impact Studio (model training, loss curve, overfitting diagnosis, cross-version benchmark).
 //   3. Embeds the slide-over Conversational AI Assistant Drawer and Ingestion Upload Modal.
 //   4. Provides instant Benchmark Sample loading for zero-setup demonstration.
 //

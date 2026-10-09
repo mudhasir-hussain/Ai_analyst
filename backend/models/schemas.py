@@ -347,6 +347,81 @@ class AuditTimelineResponse(BaseModel):
     events: List[AuditTimelineEvent] = Field(default_factory=list)
 
 
+# ------------------------------------------------------------------------------
+# 11. Machine Learning & Model Pedagogy Schemas
+# ------------------------------------------------------------------------------
+
+class MLTrainRequest(BaseModel):
+    target_column: str = Field(..., description="The dependent variable to predict.")
+    model_type: str = Field("linear_regression", description="Algorithm: 'linear_regression', 'logistic_regression', 'decision_tree', 'random_forest', 'neural_network_mlp'.")
+    test_size: float = Field(0.2, ge=0.1, le=0.5, description="Proportion of the dataset reserved for test holdout evaluation (0.1 to 0.5).")
+    hyperparameters: Dict[str, Any] = Field(default_factory=dict, description="Model hyperparameters (e.g. max_depth, n_estimators, max_iter).")
+    version_id: Optional[UUID4] = Field(None, description="Optional version to train on; defaults to active version.")
+
+
+class MLLossEpochPoint(BaseModel):
+    epoch: int = Field(..., description="Training iteration or epoch number.")
+    loss: float = Field(..., description="Training loss value at this epoch.")
+    val_loss: Optional[float] = Field(None, description="Optional validation loss at this epoch.")
+
+
+class MLPredictionPoint(BaseModel):
+    actual: float = Field(..., description="True observed target value.")
+    predicted: float = Field(..., description="Model predicted target value.")
+    residual: Optional[float] = Field(None, description="Residual difference: actual - predicted.")
+
+
+class MLFeatureImportance(BaseModel):
+    feature: str = Field(..., description="Column or encoded feature name.")
+    importance: float = Field(..., description="Normalized importance coefficient or weight.")
+
+
+class MLEvaluationMetrics(BaseModel):
+    task_type: str = Field(..., description="'regression' or 'classification'.")
+    train_score: float = Field(..., description="Training R² score or Accuracy.")
+    test_score: float = Field(..., description="Testing R² score or Accuracy.")
+    overfitting_score: float = Field(..., description="Difference: train_score - test_score.")
+    overfitting_status: str = Field(..., description="'healthy_generalization', 'moderate_overfitting', 'severe_overfitting', or 'underfitting'.")
+    overfitting_explanation: str = Field(..., description="Pedagogical explanation of why this gap occurred.")
+    regression_metrics: Optional[Dict[str, float]] = Field(None, description="R2, RMSE, MAE, MAPE if regression.")
+    classification_metrics: Optional[Dict[str, float]] = Field(None, description="Accuracy, Precision, Recall, F1 if classification.")
+
+
+class MLTrainResponse(BaseModel):
+    model_name: str = Field(..., description="Display title of the model.")
+    model_type: str = Field(..., description="Internal model key.")
+    target_column: str = Field(..., description="Column being predicted.")
+    task_type: str = Field(..., description="'regression' or 'classification'.")
+    version_number: int = Field(..., description="Dataset version on which the model was trained.")
+    total_samples: int = Field(..., description="Total rows used in training and testing.")
+    feature_count: int = Field(..., description="Total features fed to the model after encoding.")
+    metrics: MLEvaluationMetrics
+    feature_importance: List[MLFeatureImportance] = Field(default_factory=list)
+    loss_curve: List[MLLossEpochPoint] = Field(default_factory=list)
+    predictions: List[MLPredictionPoint] = Field(default_factory=list)
+    educational_takeaways: List[str] = Field(default_factory=list)
+
+
+class MLCompareRequest(BaseModel):
+    target_column: str = Field(..., description="The dependent variable to predict across versions.")
+    model_type: str = Field("linear_regression", description="Model algorithm to compare.")
+    base_version_number: int = Field(1, description="Raw / baseline version number (defaults to v1).")
+    target_version_number: Optional[int] = Field(None, description="Cleaned target version number (defaults to latest active).")
+    hyperparameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MLCompareResponse(BaseModel):
+    model_type: str
+    target_column: str
+    task_type: str
+    base_version: MLTrainResponse
+    target_version: MLTrainResponse
+    score_delta: float = Field(..., description="Improvement in test score (target - base).")
+    rmse_delta: Optional[float] = Field(None, description="Reduction in RMSE (target - base; negative is better).")
+    overfitting_gap_reduction: float = Field(..., description="Reduction in the train-test overfitting gap.")
+    summary: str = Field(..., description="Executive narrative explaining how preprocessing affected model efficacy.")
+
+
 # ==============================================================================
 # FILE SUMMARY: backend/models/schemas.py
 # ==============================================================================

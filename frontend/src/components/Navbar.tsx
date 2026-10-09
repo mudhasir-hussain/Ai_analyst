@@ -1,8 +1,8 @@
 import React from 'react';
 
 interface NavbarProps {
-  activeTab: 'table' | 'health' | 'visualizations' | 'reports' | 'history';
-  setActiveTab: (tab: 'table' | 'health' | 'visualizations' | 'reports' | 'history') => void;
+  activeTab: 'table' | 'health' | 'visualizations' | 'reports' | 'history' | 'ml';
+  setActiveTab: (tab: 'table' | 'health' | 'visualizations' | 'reports' | 'history' | 'ml') => void;
   datasetName?: string;
   versionNumber?: number;
   onOpenUpload: () => void;
@@ -69,7 +69,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'health', label: 'Health Score', icon: 'M22 12h-4l-3 9L9 3l-3 9H2' },
           { id: 'visualizations', label: 'Visualizations', icon: 'M18 20V10 M12 20V4 M6 20v-6' },
           { id: 'reports', label: 'Executive Report', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6' },
-          { id: 'history', label: 'Audit History', icon: 'M12 8v4l3 3 M3.05 11a9 9 0 1 1 .5 4' }
+          { id: 'history', label: 'Audit History', icon: 'M12 8v4l3 3 M3.05 11a9 9 0 1 1 .5 4' },
+          { id: 'ml', label: 'ML Studio', icon: 'M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5' }
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           return (

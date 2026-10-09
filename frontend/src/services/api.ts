@@ -11,7 +11,12 @@ import type {
   ReportResponse,
   VersionDiffResponse,
   RollbackResponse,
-  AuditTimelineResponse
+  AuditTimelineResponse,
+  MLTargetCandidate,
+  MLTrainRequest,
+  MLTrainResponse,
+  MLCompareRequest,
+  MLCompareResponse
 } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -331,6 +336,38 @@ export const api = {
       headers: { ...getAuthHeader() }
     });
     return handleResponse<AuditTimelineResponse>(res);
+  },
+
+  // 17. ML Impact Lab & Pedagogical Model Engine
+  async getMLTargets(datasetId: string): Promise<{ dataset_id: string; candidates: MLTargetCandidate[] }> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ml/targets`, {
+      headers: { ...getAuthHeader() }
+    });
+    return handleResponse<{ dataset_id: string; candidates: MLTargetCandidate[] }>(res);
+  },
+
+  async trainMLModel(datasetId: string, req: MLTrainRequest): Promise<MLTrainResponse> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ml/train`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify(req)
+    });
+    return handleResponse<MLTrainResponse>(res);
+  },
+
+  async compareMLVersions(datasetId: string, req: MLCompareRequest): Promise<MLCompareResponse> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ml/compare`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify(req)
+    });
+    return handleResponse<MLCompareResponse>(res);
   }
 };
 

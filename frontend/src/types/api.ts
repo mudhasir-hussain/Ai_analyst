@@ -243,6 +243,95 @@ export interface AuditTimelineResponse {
   events: AuditTimelineEvent[];
 }
 
+export interface MLTargetCandidate {
+  column: string;
+  task_type: 'regression' | 'classification';
+  data_type: string;
+  unique_values: number;
+  null_count: number;
+}
+
+export interface MLLossEpochPoint {
+  epoch: number;
+  loss: number;
+  val_loss?: number;
+}
+
+export interface MLPredictionPoint {
+  actual: number;
+  predicted: number;
+  residual?: number;
+}
+
+export interface MLFeatureImportance {
+  feature: string;
+  importance: number;
+}
+
+export interface MLEvaluationMetrics {
+  task_type: 'regression' | 'classification';
+  train_score: number;
+  test_score: number;
+  overfitting_score: number;
+  overfitting_status: 'healthy_generalization' | 'moderate_overfitting' | 'severe_overfitting' | 'underfitting';
+  overfitting_explanation: string;
+  regression_metrics?: {
+    r2_score: number;
+    rmse: number;
+    mae: number;
+    mape_percent: number;
+  };
+  classification_metrics?: {
+    accuracy: number;
+    precision: number;
+    recall: number;
+    f1_score: number;
+  };
+}
+
+export interface MLTrainResponse {
+  model_name: string;
+  model_type: string;
+  target_column: string;
+  task_type: 'regression' | 'classification';
+  version_number: number;
+  total_samples: number;
+  feature_count: number;
+  metrics: MLEvaluationMetrics;
+  feature_importance: MLFeatureImportance[];
+  loss_curve: MLLossEpochPoint[];
+  predictions: MLPredictionPoint[];
+  educational_takeaways: string[];
+}
+
+export interface MLTrainRequest {
+  target_column: string;
+  model_type: string;
+  test_size?: number;
+  hyperparameters?: Record<string, any>;
+  version_id?: string;
+}
+
+export interface MLCompareResponse {
+  model_type: string;
+  target_column: string;
+  task_type: 'regression' | 'classification';
+  base_version: MLTrainResponse;
+  target_version: MLTrainResponse;
+  score_delta: number;
+  rmse_delta?: number;
+  overfitting_gap_reduction: number;
+  summary: string;
+}
+
+export interface MLCompareRequest {
+  target_column: string;
+  model_type: string;
+  base_version_number?: number;
+  target_version_number?: number;
+  hyperparameters?: Record<string, any>;
+}
+
 
 // ==============================================================================
 // FILE SUMMARY: frontend/src/types/api.ts

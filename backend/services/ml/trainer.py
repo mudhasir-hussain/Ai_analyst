@@ -1,0 +1,334 @@
+import logging
+from typing import Dict, Any, List, Tuple, Optional
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression, Ridge, LogisticRegression
+from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+
+from models.schemas import (
+    MLTrainResponse,
+    MLLossEpochPoint,
+    MLFeatureImportance
+)
+from core.exceptions import ValidationError
+from .evaluator import evaluate_model_pedagogy
+
+logger = logging.getLogger(__name__)
+
+
+def detect_ml_task(df: pd.DataFrame, target_col: str) -> str:
+    """
+    Infers whether the given target column represents a Regression or Classification task.
+    """
+    if target_col not in df.columns:
+        raise ValidationError(f"Target column '{target_col}' not found in dataset.", "COLUMN_NOT_FOUND")
+
+    series = df[target_col].dropna()
+    if len(series) == 0:
+        raise ValidationError(f"Target column '{target_col}' has no non-null values.", "EMPTY_TARGET")
+
+    # String, category, boolean, or object types are classification
+    if not pd.api.types.is_numeric_dtype(series):
+        return "classification"
+
+    unique_vals = series.nunique()
+    # Low unique counts or binary 0/1 are classification
+    if unique_vals <= 2:
+        return "classification"
+    if unique_vals <= 8 and (series % 1 == 0).all():
+        return "classification"
+
+    return "regression"
+
+
+def get_candidate_targets(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Returns candidate target columns in the dataset along with inferred task type.
+    """
+    candidates = []
+    for col in df.columns:
+        try:
+            task = detect_ml_task(df, col)
+            unique_count = int(df[col].nunique())
+            candidates.append({
+                "column": col,
+                "task_type": task,
+                "data_type": str(df[col].dtype),
+                "unique_values": unique_count,
+                "null_count": int(df[col].isnull().sum())
+            })
+        except Exception:
+            continue
+    return candidates
+
+
+def prepare_features(
+    df: pd.DataFrame,
+    target_col: str
+) -> Tuple[np.ndarray, np.ndarray, List[str], ColumnTransformer]:
+    """
+    Preprocesses feature columns into numeric matrices with scaling and one-hot encoding.
+    """
+    # Filter rows with non-null target
+    clean_df = df.dropna(subset=[target_col]).copy()
+    if len(clean_df) < 5:
+        raise ValidationError("Dataset must contain at least 5 rows with non-null target values.", "INSUFFICIENT_DATA")
+
+    y_raw = clean_df[target_col].values
+    X_df = clean_df.drop(columns=[target_col])
+
+    if X_df.shape[1] == 0:
+        raise ValidationError("At least one feature column is required besides the target.", "NO_FEATURES")
+
+    # Drop obvious high-cardinality unique ID columns (e.g. Row ID, Transaction ID)
+    drop_candidates = []
+    for col in X_df.columns:
+        if X_df[col].nunique() == len(X_df) and not pd.api.types.is_numeric_dtype(X_df[col]):
+            drop_candidates.append(col)
+        elif pd.api.types.is_datetime64_any_dtype(X_df[col]):
+            drop_candidates.append(col)
+
+    if drop_candidates and len(drop_candidates) < X_df.shape[1]:
+        X_df = X_df.drop(columns=drop_candidates)
+
+    numeric_cols = [c for c in X_df.columns if pd.api.types.is_numeric_dtype(X_df[c])]
+    categorical_cols = [c for c in X_df.columns if c not in numeric_cols]
+
+    transformers = []
+    if numeric_cols:
+        num_pipeline = Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler())
+        ])
+        transformers.append(("num", num_pipeline, numeric_cols))
+
+    if categorical_cols:
+        cat_pipeline = Pipeline([
+            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+            ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
+        ])
+        transformers.append(("cat", cat_pipeline, categorical_cols))
+
+    preprocessor = ColumnTransformer(transformers=transformers, remainder="drop")
+    X_processed = preprocessor.fit_transform(X_df)
+
+    # Reconstruct feature names
+    feature_names = []
+    if numeric_cols:
+        feature_names.extend(numeric_cols)
+    if categorical_cols:
+        try:
+            ohe = preprocessor.named_transformers_["cat"].named_steps["ohe"]
+            cat_feature_names = ohe.get_feature_names_out(categorical_cols).tolist()
+            feature_names.extend(cat_feature_names)
+        except Exception:
+            feature_names.extend([f"cat_{i}" for i in range(X_processed.shape[1] - len(numeric_cols))])
+
+    # Convert y to appropriate type
+    task = detect_ml_task(df, target_col)
+    if task == "classification":
+        # Label encode if non-numeric
+        if not pd.api.types.is_numeric_dtype(clean_df[target_col]):
+            labels, uniques = pd.factorize(clean_df[target_col])
+            y_processed = labels
+        else:
+            y_processed = y_raw.astype(int)
+    else:
+        y_processed = y_raw.astype(float)
+
+    return X_processed, y_processed, feature_names, preprocessor
+
+
+def train_model_on_dataframe(
+    df: pd.DataFrame,
+    target_col: str,
+    model_type: str = "linear_regression",
+    test_size: float = 0.2,
+    hyperparameters: Optional[Dict[str, Any]] = None,
+    version_number: int = 1
+) -> MLTrainResponse:
+    """
+    Trains the chosen model on the DataFrame, tracks gradient descent loss curves
+    (for MLP), computes overfitting gap, and compiles pedagogical diagnostics.
+    """
+    params = hyperparameters or {}
+    task_type = detect_ml_task(df, target_col)
+    X, y, feature_names, _ = prepare_features(df, target_col)
+
+    # Train / Test split
+    stratify = None
+    if task_type == "classification":
+        # Only stratify if all classes have at least 2 instances
+        class_counts = pd.Series(y).value_counts()
+        if (class_counts >= 2).all() and len(class_counts) > 1:
+            stratify = y
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42, stratify=stratify
+    )
+
+    model_key = model_type.lower().strip()
+    loss_curve_points: List[MLLossEpochPoint] = []
+    model = None
+    model_name = "Model"
+
+    # 1. Linear / Logistic Models
+    if model_key in {"linear", "linear_regression"}:
+        if task_type == "regression":
+            model = Ridge(alpha=1.0)
+            model_name = "Linear Regression (Ridge Regularized)"
+        else:
+            model = LogisticRegression(max_iter=500, random_state=42)
+            model_name = "Logistic Regression"
+
+    # 2. Decision Tree Models (pedagogical overfitting example)
+    elif model_key in {"tree", "decision_tree"}:
+        max_depth = params.get("max_depth")
+        if max_depth is not None and str(max_depth).isdigit():
+            max_depth = int(max_depth)
+        else:
+            max_depth = None  # Unconstrained depth allows memorization of duplicates/noise
+
+        if task_type == "regression":
+            model = DecisionTreeRegressor(max_depth=max_depth, random_state=42)
+            model_name = f"Decision Tree Regressor (Depth: {max_depth or 'Unconstrained'})"
+        else:
+            model = DecisionTreeClassifier(max_depth=max_depth, random_state=42)
+            model_name = f"Decision Tree Classifier (Depth: {max_depth or 'Unconstrained'})"
+
+    # 3. Random Forest Models (ensemble generalization)
+    elif model_key in {"forest", "random_forest"}:
+        n_estimators = int(params.get("n_estimators", 40))
+        max_depth = params.get("max_depth")
+        if max_depth is not None and str(max_depth).isdigit():
+            max_depth = int(max_depth)
+        else:
+            max_depth = 8
+
+        if task_type == "regression":
+            model = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
+            model_name = f"Random Forest Regressor ({n_estimators} Trees)"
+        else:
+            model = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
+            model_name = f"Random Forest Classifier ({n_estimators} Trees)"
+
+    # 4. Neural Network (Multi-Layer Perceptron)
+    elif model_key in {"mlp", "neural_network", "neural_network_mlp", "nn"}:
+        max_iter = int(params.get("max_iter", 75))
+        lr = float(params.get("learning_rate", 0.01))
+        hidden_layers = (32, 16)
+
+        if task_type == "regression":
+            model = MLPRegressor(
+                hidden_layer_sizes=hidden_layers,
+                max_iter=max_iter,
+                learning_rate_init=lr,
+                random_state=42,
+                early_stopping=False
+            )
+            model_name = f"Multi-Layer Perceptron (NN: {hidden_layers[0]}x{hidden_layers[1]})"
+        else:
+            model = MLPClassifier(
+                hidden_layer_sizes=hidden_layers,
+                max_iter=max_iter,
+                learning_rate_init=lr,
+                random_state=42,
+                early_stopping=False
+            )
+            model_name = f"Multi-Layer Perceptron Classifier (NN: {hidden_layers[0]}x{hidden_layers[1]})"
+
+    else:
+        # Default fallback
+        if task_type == "regression":
+            model = Ridge(alpha=1.0)
+            model_name = "Linear Regression (Ridge Regularized)"
+        else:
+            model = LogisticRegression(max_iter=500, random_state=42)
+            model_name = "Logistic Regression"
+
+    # Fit Model
+    model.fit(X_train, y_train)
+
+    # Extract Neural Network Gradient Descent Loss Curve
+    if hasattr(model, "loss_curve_"):
+        raw_losses = getattr(model, "loss_curve_", [])
+        for epoch_idx, l_val in enumerate(raw_losses, 1):
+            loss_curve_points.append(
+                MLLossEpochPoint(
+                    epoch=epoch_idx,
+                    loss=float(round(l_val, 4))
+                )
+            )
+
+    # Extract Feature Importance / Coefficients
+    feature_importances: List[MLFeatureImportance] = []
+    try:
+        raw_importances = None
+        if hasattr(model, "feature_importances_"):
+            raw_importances = model.feature_importances_
+        elif hasattr(model, "coef_"):
+            raw_importances = np.abs(model.coef_)
+            if raw_importances.ndim > 1:
+                raw_importances = np.mean(raw_importances, axis=0)
+
+        if raw_importances is not None and len(raw_importances) == len(feature_names):
+            norm_factor = np.sum(raw_importances)
+            if norm_factor > 0:
+                normalized = raw_importances / norm_factor
+            else:
+                normalized = raw_importances
+
+            ranked = sorted(zip(feature_names, normalized), key=lambda x: x[1], reverse=True)
+            for f_name, imp_val in ranked[:12]:
+                feature_importances.append(
+                    MLFeatureImportance(
+                        feature=f_name,
+                        importance=float(round(imp_val, 4))
+                    )
+                )
+    except Exception as e:
+        logger.warning(f"Could not calculate feature importances: {e}")
+
+    # Evaluate Pedagogy, Overfitting, Residuals, and Takeaways
+    return evaluate_model_pedagogy(
+        model=model,
+        model_name=model_name,
+        model_type=model_key,
+        task_type=task_type,
+        target_column=target_col,
+        version_number=version_number,
+        X_train=X_train,
+        X_test=X_test,
+        y_train=y_train,
+        y_test=y_test,
+        feature_count=X.shape[1],
+        total_samples=len(X),
+        feature_importance=feature_importances,
+        loss_curve=loss_curve_points
+    )
+
+
+# ==============================================================================
+# FILE SUMMARY: backend/services/ml/trainer.py
+# ==============================================================================
+# WHAT THIS FILE CONTAINS AND DOES:
+# This file provides the deterministic in-memory Machine Learning training pipeline:
+#   1. 'detect_ml_task': Automatically identifies Regression vs. Classification tasks.
+#   2. 'get_candidate_targets': Inspects all dataset columns and suggests suitable prediction targets.
+#   3. 'prepare_features': Cleans and encodes feature matrices with Median Imputation,
+#      One-Hot Encoding, and Standard Scaling.
+#   4. 'train_model_on_dataframe': Fits Scikit-Learn models (Ridge, DecisionTree,
+#      RandomForest, and MLP Neural Networks), captures per-epoch gradient descent loss curves,
+#      computes feature importances, and invokes 'evaluate_model_pedagogy'.
+#
+# HOW IT CONNECTS TO OTHER FILES:
+# - Invoked by 'backend/api/ml.py' and 'backend/services/ml/comparator.py'.
+# - Returns structured Pydantic response models defined in 'backend/models/schemas.py'.
+# ==============================================================================

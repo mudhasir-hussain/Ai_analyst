@@ -43,6 +43,14 @@ class AIPlanError(AppException):
         super().__init__(detail, error_code, 422)
 
 
+class MLValidationError(DatasetValidationError):
+    def __init__(self, detail: str, error_code: str = "ML_VALIDATION_ERROR"):
+        super().__init__(detail, error_code)
+
+
+ValidationError = DatasetValidationError
+
+
 # ==============================================================================
 # FILE SUMMARY: backend/core/exceptions.py
 # ==============================================================================

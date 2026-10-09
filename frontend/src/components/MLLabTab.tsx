@@ -1,0 +1,1035 @@
+import React, { useState, useEffect } from 'react';
+import type {
+  MLTargetCandidate,
+  MLTrainResponse,
+  MLCompareResponse,
+  DatasetVersion
+} from '../types/api';
+import { api } from '../services/api';
+
+interface MLLabTabProps {
+  datasetId?: string;
+  versions: DatasetVersion[];
+  activeVersionNumber?: number;
+  onLoadSample?: () => void;
+  showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
+}
+
+export const MLLabTab: React.FC<MLLabTabProps> = ({
+  datasetId,
+  versions,
+  activeVersionNumber = 1,
+  onLoadSample,
+  showToast
+}) => {
+  // State
+  const [candidates, setCandidates] = useState<MLTargetCandidate[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<string>('');
+  const [modelType, setModelType] = useState<string>('decision_tree');
+  const [testSize, setTestSize] = useState<number>(0.2);
+  const [maxDepth, setMaxDepth] = useState<number | null>(3);
+  const [isUnconstrainedDepth, setIsUnconstrainedDepth] = useState<boolean>(false);
+
+  // Results State
+  const [trainResult, setTrainResult] = useState<MLTrainResponse | null>(null);
+  const [compareResult, setCompareResult] = useState<MLCompareResponse | null>(null);
+  const [isTraining, setIsTraining] = useState<boolean>(false);
+  const [isComparing, setIsComparing] = useState<boolean>(false);
+  const [selectedBaseVersion, setSelectedBaseVersion] = useState<number>(1);
+  const [activeVizTab, setActiveVizTab] = useState<'loss' | 'actual_vs_pred' | 'features' | 'overfitting'>('overfitting');
+
+  // Load target candidates when datasetId changes
+  useEffect(() => {
+    if (!datasetId) {
+      setCandidates([]);
+      setSelectedTarget('');
+      setTrainResult(null);
+      setCompareResult(null);
+      return;
+    }
+
+    let isMounted = true;
+    api.getMLTargets(datasetId)
+      .then((res) => {
+        if (!isMounted) return;
+        setCandidates(res.candidates);
+        if (res.candidates.length > 0) {
+          // Default to first candidate
+          setSelectedTarget(res.candidates[0].column);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch ML targets:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [datasetId, activeVersionNumber]);
+
+  const currentCandidate = candidates.find((c) => c.column === selectedTarget);
+  const taskType = currentCandidate?.task_type || 'regression';
+
+  // Handler: Train Model
+  const handleTrain = async () => {
+    if (!datasetId || !selectedTarget) {
+      showToast('Please select a target variable first.', 'info');
+      return;
+    }
+
+    setIsTraining(true);
+    setCompareResult(null);
+    try {
+      const hyperparameters: Record<string, any> = {};
+      if (modelType === 'decision_tree' || modelType === 'random_forest') {
+        hyperparameters.max_depth = isUnconstrainedDepth ? null : maxDepth;
+      }
+      if (modelType === 'neural_net') {
+        hyperparameters.max_iter = 120;
+      }
+
+      const res = await api.trainMLModel(datasetId, {
+        target_column: selectedTarget,
+        model_type: modelType,
+        test_size: testSize,
+        hyperparameters
+      });
+
+      setTrainResult(res);
+      showToast(`Trained ${res.model_name} successfully!`, 'success');
+
+      // Auto-switch viz tab depending on model
+      if (res.loss_curve && res.loss_curve.length > 0) {
+        setActiveVizTab('loss');
+      } else {
+        setActiveVizTab('overfitting');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to train machine learning model.', 'error');
+    } finally {
+      setIsTraining(false);
+    }
+  };
+
+  // Handler: Compare Versions
+  const handleCompareVersions = async () => {
+    if (!datasetId || !selectedTarget) {
+      showToast('Please select a target variable first.', 'info');
+      return;
+    }
+
+    setIsComparing(true);
+    try {
+      const hyperparameters: Record<string, any> = {};
+      if (modelType === 'decision_tree' || modelType === 'random_forest') {
+        hyperparameters.max_depth = isUnconstrainedDepth ? null : maxDepth;
+      }
+
+      const res = await api.compareMLVersions(datasetId, {
+        target_column: selectedTarget,
+        model_type: modelType,
+        base_version_number: selectedBaseVersion,
+        target_version_number: activeVersionNumber,
+        hyperparameters
+      });
+
+      setCompareResult(res);
+      showToast('Generated cross-version ML comparison!', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Comparison failed. Ensure at least two versions exist.', 'error');
+    } finally {
+      setIsComparing(false);
+    }
+  };
+
+  // Helper for Status Badge
+  const getStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'healthy_generalization':
+        return {
+          label: 'Healthy Generalization',
+          bg: 'rgba(5, 150, 105, 0.15)',
+          color: '#10B981',
+          border: '1px solid rgba(5, 150, 105, 0.4)'
+        };
+      case 'moderate_overfitting':
+        return {
+          label: 'Moderate Overfitting',
+          bg: 'rgba(217, 119, 6, 0.15)',
+          color: '#F59E0B',
+          border: '1px solid rgba(217, 119, 6, 0.4)'
+        };
+      case 'severe_overfitting':
+        return {
+          label: 'Severe Overfitting',
+          bg: 'rgba(225, 29, 72, 0.15)',
+          color: '#F43F5E',
+          border: '1px solid rgba(225, 29, 72, 0.4)'
+        };
+      case 'underfitting':
+        return {
+          label: 'Underfitting',
+          bg: 'rgba(2, 132, 199, 0.15)',
+          color: '#38BDF8',
+          border: '1px solid rgba(2, 132, 199, 0.4)'
+        };
+      default:
+        return {
+          label: 'Pending Training',
+          bg: 'rgba(100, 116, 139, 0.15)',
+          color: '#94A3B8',
+          border: '1px solid rgba(100, 116, 139, 0.3)'
+        };
+    }
+  };
+
+  // Empty State: No Dataset
+  if (!datasetId) {
+    return (
+      <div className="card" style={{ padding: '60px 40px', textAlign: 'center', maxWidth: '780px', margin: '40px auto' }}>
+        <div style={{
+          width: '64px',
+          height: '64px',
+          borderRadius: '16px',
+          background: 'rgba(37, 99, 235, 0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          margin: '0 auto 20px auto',
+          border: '1px solid rgba(37, 99, 235, 0.3)'
+        }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--brand-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '12px', color: '#FFFFFF' }}>
+          Machine Learning Impact Studio
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6, marginBottom: '28px', maxWidth: '580px', margin: '0 auto 28px auto' }}>
+          Experience first-hand how raw, uncleaned data (missing values, extreme outliers, duplicate rows) degrades model performance and causes severe overfitting. Train models directly and benchmark raw vs. cleaned versions.
+        </p>
+        {onLoadSample && (
+          <button onClick={onLoadSample} className="btn-primary" style={{ padding: '10px 24px', fontSize: '0.9rem' }}>
+            Load Sample Dataset to Explore ML Lab
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const statusBadge = getStatusBadge(trainResult?.metrics.overfitting_status);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
+      {/* 1. Header & Configuration Card */}
+      <div className="card" style={{ padding: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                background: 'var(--brand-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5" />
+                </svg>
+              </div>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#FFFFFF', margin: 0 }}>
+                Machine Learning Impact Studio
+              </h2>
+              <span className="badge badge-numeric" style={{ fontSize: '0.72rem' }}>
+                v{activeVersionNumber} Active
+              </span>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, maxWidth: '720px' }}>
+              Train lightweight Scikit-Learn models in real-time, inspect overfitting gaps, observe neural loss convergence, and measure how data cleaning unlocks model generalization.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button
+              onClick={handleTrain}
+              disabled={isTraining || !selectedTarget}
+              className="btn-primary"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 20px',
+                fontSize: '0.88rem',
+                opacity: isTraining ? 0.7 : 1
+              }}
+            >
+              {isTraining ? (
+                <>
+                  <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }}></span>
+                  Training Model...
+                </>
+              ) : (
+                <>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                  </svg>
+                  Train & Analyze Model
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Control Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '16px',
+          paddingTop: '16px',
+          borderTop: '1px solid var(--border-subtle)'
+        }}>
+          {/* Target Variable Selector */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Target Column
+            </label>
+            <select
+              value={selectedTarget}
+              onChange={(e) => setSelectedTarget(e.target.value)}
+              className="input-select"
+              style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
+            >
+              {candidates.map((c) => (
+                <option key={c.column} value={c.column}>
+                  {c.column} ({c.task_type.toUpperCase()} • {c.data_type})
+                </option>
+              ))}
+            </select>
+            {currentCandidate && (
+              <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{
+                  fontSize: '0.7rem',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  background: currentCandidate.task_type === 'regression' ? 'rgba(2, 132, 199, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                  color: currentCandidate.task_type === 'regression' ? '#38BDF8' : '#34D399',
+                  fontWeight: 600,
+                  textTransform: 'uppercase'
+                }}>
+                  {currentCandidate.task_type}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {currentCandidate.unique_values} unique values
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Model Type Selector */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Model Architecture
+            </label>
+            <select
+              value={modelType}
+              onChange={(e) => setModelType(e.target.value)}
+              className="input-select"
+              style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
+            >
+              <option value="decision_tree">Decision Tree (Overfitting Demo)</option>
+              <option value="linear">
+                {taskType === 'regression' ? 'Linear Ridge Regression' : 'Logistic Regression'}
+              </option>
+              <option value="random_forest">Random Forest (Ensemble)</option>
+              <option value="neural_net">Neural Network (MLP Backprop)</option>
+            </select>
+            <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', display: 'block', marginTop: '6px' }}>
+              {modelType === 'decision_tree' && 'Sensitive to duplicate data & outliers'}
+              {modelType === 'linear' && 'Baseline linear decision surface'}
+              {modelType === 'random_forest' && 'Bagging ensemble reduces variance'}
+              {modelType === 'neural_net' && 'Multi-layer backpropagation loss curve'}
+            </span>
+          </div>
+
+          {/* Decision Tree Max Depth Slider */}
+          {(modelType === 'decision_tree' || modelType === 'random_forest') && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Tree Depth
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={isUnconstrainedDepth}
+                    onChange={(e) => setIsUnconstrainedDepth(e.target.checked)}
+                  />
+                  Unconstrained (Max)
+                </label>
+              </div>
+
+              {!isUnconstrainedDepth ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="range"
+                    min="1"
+                    max="15"
+                    step="1"
+                    value={maxDepth || 3}
+                    onChange={(e) => setMaxDepth(parseInt(e.target.value))}
+                    style={{ flex: 1, accentColor: 'var(--brand-primary)' }}
+                  />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '24px', color: '#FFFFFF' }}>
+                    {maxDepth}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.78rem', color: '#F43F5E', fontWeight: 500, padding: '6px 0' }}>
+                  ⚠️ Unlimited depth: Model will fully memorize training duplicates.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Test Split Slider */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Test Split: {(testSize * 100).toFixed(0)}%
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input
+                type="range"
+                min="0.1"
+                max="0.4"
+                step="0.05"
+                value={testSize}
+                onChange={(e) => setTestSize(parseFloat(e.target.value))}
+                style={{ flex: 1, accentColor: 'var(--brand-primary)' }}
+              />
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '36px', color: '#FFFFFF' }}>
+                {(testSize * 100).toFixed(0)}%
+              </span>
+            </div>
+            <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', display: 'block', marginTop: '6px' }}>
+              {100 - Math.round(testSize * 100)}% Train / {Math.round(testSize * 100)}% Validation
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Training Results Section */}
+      {trainResult ? (
+        <>
+          {/* Pedagogical Generalization Banner */}
+          <div style={{
+            background: statusBadge.bg,
+            border: statusBadge.border,
+            borderRadius: 'var(--radius-md)',
+            padding: '18px 22px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '16px'
+          }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              background: 'rgba(255,255,255,0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: statusBadge.color,
+              flexShrink: 0
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                <span style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.6px',
+                  color: statusBadge.color
+                }}>
+                  {statusBadge.label}
+                </span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  • Gap: {(trainResult.metrics.overfitting_score * 100).toFixed(1)}%
+                </span>
+              </div>
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.5, margin: 0 }}>
+                {trainResult.metrics.overfitting_explanation}
+              </p>
+            </div>
+          </div>
+
+          {/* 4 Scorecard KPI Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px'
+          }}>
+            {/* Train Score Card */}
+            <div className="card" style={{ padding: '20px' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                Training Score ({taskType === 'regression' ? 'R²' : 'Accuracy'})
+              </div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.5px' }}>
+                {(trainResult.metrics.train_score * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                Fit on seen training records
+              </div>
+            </div>
+
+            {/* Test Score Card */}
+            <div className="card" style={{ padding: '20px' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                Test Score ({taskType === 'regression' ? 'R²' : 'Accuracy'})
+              </div>
+              <div style={{
+                fontSize: '1.8rem',
+                fontWeight: 700,
+                color: trainResult.metrics.test_score >= 0.7 ? '#10B981' : trainResult.metrics.test_score >= 0.4 ? '#F59E0B' : '#F43F5E',
+                letterSpacing: '-0.5px'
+              }}>
+                {(trainResult.metrics.test_score * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                True generalization on unseen holdout
+              </div>
+            </div>
+
+            {/* Generalization Gap Card */}
+            <div className="card" style={{ padding: '20px' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                Overfitting Gap (Δ)
+              </div>
+              <div style={{
+                fontSize: '1.8rem',
+                fontWeight: 700,
+                color: trainResult.metrics.overfitting_score <= 0.12 ? '#10B981' : trainResult.metrics.overfitting_score <= 0.25 ? '#F59E0B' : '#F43F5E',
+                letterSpacing: '-0.5px'
+              }}>
+                {(trainResult.metrics.overfitting_score * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                Train vs Test divergence
+              </div>
+            </div>
+
+            {/* Secondary Metric Card */}
+            <div className="card" style={{ padding: '20px' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                {taskType === 'regression' ? 'Root Mean Squared Error (RMSE)' : 'F1-Score (Macro)'}
+              </div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.5px' }}>
+                {taskType === 'regression'
+                  ? (trainResult.metrics.regression_metrics?.rmse.toFixed(3) ?? 'N/A')
+                  : `${((trainResult.metrics.classification_metrics?.f1_score || 0) * 100).toFixed(1)}%`}
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                {taskType === 'regression'
+                  ? `MAE: ${trainResult.metrics.regression_metrics?.mae.toFixed(3) ?? 'N/A'}`
+                  : `Precision: ${((trainResult.metrics.classification_metrics?.precision || 0) * 100).toFixed(1)}%`}
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Interactive Pedagogical Visualizations */}
+          <div className="card" style={{ padding: '24px' }}>
+            {/* Visualizer Nav Tabs */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setActiveVizTab('overfitting')}
+                  style={{
+                    background: activeVizTab === 'overfitting' ? 'var(--brand-primary)' : 'transparent',
+                    color: activeVizTab === 'overfitting' ? '#FFFFFF' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '6px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Overfitting Diagnostics
+                </button>
+
+                {trainResult.loss_curve && trainResult.loss_curve.length > 0 && (
+                  <button
+                    onClick={() => setActiveVizTab('loss')}
+                    style={{
+                      background: activeVizTab === 'loss' ? 'var(--brand-primary)' : 'transparent',
+                      color: activeVizTab === 'loss' ? '#FFFFFF' : 'var(--text-secondary)',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '6px 14px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Loss Curve / Gradient Descent
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setActiveVizTab('actual_vs_pred')}
+                  style={{
+                    background: activeVizTab === 'actual_vs_pred' ? 'var(--brand-primary)' : 'transparent',
+                    color: activeVizTab === 'actual_vs_pred' ? '#FFFFFF' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '6px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {taskType === 'regression' ? 'Actual vs. Predicted Scatter' : 'Prediction Distribution'}
+                </button>
+
+                <button
+                  onClick={() => setActiveVizTab('features')}
+                  style={{
+                    background: activeVizTab === 'features' ? 'var(--brand-primary)' : 'transparent',
+                    color: activeVizTab === 'features' ? '#FFFFFF' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '6px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Feature Importance
+                </button>
+              </div>
+
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                {trainResult.total_samples} samples • {trainResult.feature_count} features
+              </span>
+            </div>
+
+            {/* TAB: Overfitting Diagnostics Gauge */}
+            {activeVizTab === 'overfitting' && (
+              <div>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '8px' }}>
+                  Generalization Diagnostics: Training vs. Holdout Validation
+                </h4>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '700px' }}>
+                  A healthy machine learning model maintains close proximity between training score and validation score. Large divergence indicates that the model memorized idiosyncrasies, duplicate rows, or outlier noise rather than discovering transferable patterns.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '650px' }}>
+                  {/* Train Score Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '6px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Training Score</span>
+                      <span style={{ color: '#FFFFFF', fontWeight: 600 }}>{(trainResult.metrics.train_score * 100).toFixed(1)}%</span>
+                    </div>
+                    <div style={{ height: '14px', background: 'rgba(255,255,255,0.06)', borderRadius: '7px', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${Math.min(100, Math.max(0, trainResult.metrics.train_score * 100))}%`,
+                        background: 'var(--brand-primary)',
+                        borderRadius: '7px',
+                        transition: 'width 0.4s ease'
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* Test Score Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '6px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Validation Holdout Score</span>
+                      <span style={{ color: statusBadge.color, fontWeight: 600 }}>{(trainResult.metrics.test_score * 100).toFixed(1)}%</span>
+                    </div>
+                    <div style={{ height: '14px', background: 'rgba(255,255,255,0.06)', borderRadius: '7px', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${Math.min(100, Math.max(0, trainResult.metrics.test_score * 100))}%`,
+                        background: statusBadge.color,
+                        borderRadius: '7px',
+                        transition: 'width 0.4s ease'
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* Overfitting Gap Highlighter */}
+                  <div style={{
+                    padding: '14px 18px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Generalization Gap (Train − Test):</span>
+                    <span style={{ fontSize: '0.92rem', fontWeight: 700, color: statusBadge.color }}>
+                      {(trainResult.metrics.overfitting_score * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: Loss Curve / Gradient Descent */}
+            {activeVizTab === 'loss' && trainResult.loss_curve && (
+              <div>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '6px' }}>
+                  Neural Network Gradient Descent: Loss vs. Training Epochs
+                </h4>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '18px' }}>
+                  Monitors error reduction during backpropagation. Clean data produces smooth, monotonic loss minimization, whereas duplicate rows and extreme unscaled outliers cause erratic spikes or premature plateaus.
+                </p>
+
+                {/* SVG Loss Curve */}
+                <div style={{ width: '100%', height: '260px', position: 'relative' }}>
+                  <svg width="100%" height="100%" viewBox="0 0 600 240" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+                    <defs>
+                      <linearGradient id="lossGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--brand-primary)" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="var(--brand-primary)" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Grid lines */}
+                    <line x1="40" y1="20" x2="580" y2="20" stroke="var(--border-subtle)" strokeDasharray="3 3" />
+                    <line x1="40" y1="110" x2="580" y2="110" stroke="var(--border-subtle)" strokeDasharray="3 3" />
+                    <line x1="40" y1="200" x2="580" y2="200" stroke="var(--border-subtle)" />
+
+                    {/* Y-axis labels */}
+                    <text x="32" y="24" fill="var(--text-muted)" fontSize="10" textAnchor="end">
+                      {Math.max(...trainResult.loss_curve.map((p) => p.loss)).toFixed(2)}
+                    </text>
+                    <text x="32" y="204" fill="var(--text-muted)" fontSize="10" textAnchor="end">
+                      {Math.min(...trainResult.loss_curve.map((p) => p.loss)).toFixed(2)}
+                    </text>
+
+                    {/* Generate SVG Path */}
+                    {(() => {
+                      const points = trainResult.loss_curve;
+                      const maxLoss = Math.max(...points.map((p) => p.loss)) || 1;
+                      const minLoss = Math.min(...points.map((p) => p.loss)) || 0;
+                      const lossRange = maxLoss - minLoss || 1;
+
+                      const svgPoints = points.map((p, idx) => {
+                        const x = 40 + (idx / Math.max(1, points.length - 1)) * 540;
+                        const y = 200 - ((p.loss - minLoss) / lossRange) * 180;
+                        return { x, y, ...p };
+                      });
+
+                      const pathD = svgPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '');
+                      const areaD = `${pathD} L ${svgPoints[svgPoints.length - 1].x} 200 L 40 200 Z`;
+
+                      return (
+                        <>
+                          <path d={areaD} fill="url(#lossGradient)" />
+                          <path d={pathD} fill="none" stroke="var(--brand-primary)" strokeWidth="2.5" strokeLinecap="round" />
+                          {svgPoints.filter((_, i) => i % Math.ceil(svgPoints.length / 10) === 0 || i === svgPoints.length - 1).map((p, i) => (
+                            <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="#FFFFFF" stroke="var(--brand-primary)" strokeWidth="2" />
+                          ))}
+                        </>
+                      );
+                    })()}
+
+                    {/* X-axis label */}
+                    <text x="310" y="225" fill="var(--text-muted)" fontSize="11" textAnchor="middle">
+                      Training Epochs (Total: {trainResult.loss_curve.length})
+                    </text>
+                  </svg>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: Actual vs. Predicted Scatter */}
+            {activeVizTab === 'actual_vs_pred' && (
+              <div>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '6px' }}>
+                  {taskType === 'regression' ? 'Actual vs. Predicted Scatter (Test Samples)' : 'Prediction Accuracy Distribution'}
+                </h4>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '18px' }}>
+                  {taskType === 'regression'
+                    ? 'Points hugging the dashed 45° diagonal line represent accurate predictions. Deviations and outlier clusters highlight modeling errors.'
+                    : 'Shows how holdout samples are categorized relative to ground-truth labels.'}
+                </p>
+
+                {taskType === 'regression' && trainResult.predictions.length > 0 ? (
+                  <div style={{ width: '100%', height: '260px' }}>
+                    <svg width="100%" height="100%" viewBox="0 0 600 240" preserveAspectRatio="none">
+                      {/* 45 degree ideal diagonal */}
+                      <line x1="50" y1="190" x2="570" y2="30" stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" strokeWidth="1.5" />
+
+                      {/* Bounding box axes */}
+                      <line x1="50" y1="20" x2="50" y2="200" stroke="var(--border-subtle)" />
+                      <line x1="50" y1="200" x2="580" y2="200" stroke="var(--border-subtle)" />
+
+                      {(() => {
+                        const pts = trainResult.predictions;
+                        const allVals = pts.flatMap((p) => [p.actual, p.predicted]);
+                        const minVal = Math.min(...allVals);
+                        const maxVal = Math.max(...allVals);
+                        const range = maxVal - minVal || 1;
+
+                        return (
+                          <>
+                            {pts.map((p, idx) => {
+                              const x = 50 + ((p.actual - minVal) / range) * 520;
+                              const y = 200 - ((p.predicted - minVal) / range) * 170;
+                              return (
+                                <circle
+                                  key={idx}
+                                  cx={x}
+                                  cy={y}
+                                  r="4"
+                                  fill="rgba(56, 189, 248, 0.75)"
+                                  stroke="#0284C7"
+                                  strokeWidth="1"
+                                />
+                              );
+                            })}
+                            <text x="315" y="225" fill="var(--text-muted)" fontSize="11" textAnchor="middle">
+                              Actual Values
+                            </text>
+                            <text x="20" y="115" fill="var(--text-muted)" fontSize="11" transform="rotate(-90 20 115)" textAnchor="middle">
+                              Predicted
+                            </text>
+                          </>
+                        );
+                      })()}
+                    </svg>
+                  </div>
+                ) : (
+                  <div style={{ padding: '20px', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      Total test predictions evaluated: <strong style={{ color: '#FFFFFF' }}>{trainResult.predictions.length}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: Feature Importance */}
+            {activeVizTab === 'features' && (
+              <div>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '6px' }}>
+                  Model Feature Importance / Coefficients
+                </h4>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '18px' }}>
+                  Relative feature weight contributions during model decision-making. Preprocessing features through imputation and scaling ensures unskewed, meaningful feature attribution.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '700px' }}>
+                  {trainResult.feature_importance.slice(0, 10).map((item, idx) => (
+                    <div key={idx}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '4px' }}>
+                        <span style={{ color: '#FFFFFF', fontWeight: 500 }}>{item.feature}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>{(item.importance * 100).toFixed(1)}%</span>
+                      </div>
+                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{
+                          height: '100%',
+                          width: `${Math.min(100, Math.max(0, item.importance * 100))}%`,
+                          background: 'var(--accent-cyan)',
+                          borderRadius: '4px'
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 4. Educational Takeaways Card */}
+          {trainResult.educational_takeaways && trainResult.educational_takeaways.length > 0 && (
+            <div className="card" style={{ padding: '20px 24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand-primary)" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                <h4 style={{ fontSize: '0.92rem', fontWeight: 600, color: '#FFFFFF', margin: 0 }}>
+                  Pedagogical Takeaways & Data Quality Insights
+                </h4>
+              </div>
+              <ul style={{ paddingLeft: '20px', margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {trainResult.educational_takeaways.map((takeaway, idx) => (
+                  <li key={idx} style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    {takeaway}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 5. Cross-Version Comparison Benchmark ("Before vs. After Cleaning") */}
+          <div className="card" style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '4px' }}>
+                  Cross-Version Generalization Benchmark
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.83rem', margin: 0 }}>
+                  Quantify the exact model performance gain (+R², +Accuracy, reduced overfitting gap) achieved between the uncleaned baseline and your preprocessed dataset version.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Compare against:</label>
+                <select
+                  value={selectedBaseVersion}
+                  onChange={(e) => setSelectedBaseVersion(parseInt(e.target.value))}
+                  className="input-select"
+                  style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                >
+                  {versions.map((v) => (
+                    <option key={v.version_number} value={v.version_number}>
+                      v{v.version_number} {v.version_number === 1 ? '(Raw Baseline)' : ''}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={handleCompareVersions}
+                  disabled={isComparing || versions.length < 2}
+                  className="btn-secondary"
+                  style={{ padding: '7px 16px', fontSize: '0.82rem' }}
+                >
+                  {isComparing ? 'Benchmarking...' : 'Run Benchmark'}
+                </button>
+              </div>
+            </div>
+
+            {/* Comparison Results Card */}
+            {compareResult && (
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '20px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    background: compareResult.score_delta >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(244, 63, 94, 0.2)',
+                    color: compareResult.score_delta >= 0 ? '#34D399' : '#F43F5E',
+                    fontWeight: 700,
+                    fontSize: '0.85rem'
+                  }}>
+                    {compareResult.score_delta >= 0 ? '+' : ''}{(compareResult.score_delta * 100).toFixed(1)}% Performance Gain
+                  </div>
+                  <div style={{
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    background: compareResult.overfitting_gap_reduction >= 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(244, 63, 94, 0.2)',
+                    color: compareResult.overfitting_gap_reduction >= 0 ? '#34D399' : '#F43F5E',
+                    fontWeight: 600,
+                    fontSize: '0.82rem'
+                  }}>
+                    {compareResult.overfitting_gap_reduction >= 0 ? '−' : '+'}
+                    {(Math.abs(compareResult.overfitting_gap_reduction) * 100).toFixed(1)}% Overfitting Reduction
+                  </div>
+                </div>
+
+                <p style={{ fontSize: '0.86rem', color: 'var(--text-primary)', lineHeight: 1.5, marginBottom: '18px' }}>
+                  {compareResult.summary}
+                </p>
+
+                {/* Side-by-Side Comparison Table */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div style={{ padding: '14px', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                      Baseline v{compareResult.base_version.version_number}
+                    </div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#FFFFFF' }}>
+                      {(compareResult.base_version.metrics.test_score * 100).toFixed(1)}% Test Score
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      Overfitting Gap: {(compareResult.base_version.metrics.overfitting_score * 100).toFixed(1)}%
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '14px', background: 'rgba(37, 99, 235, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(37, 99, 235, 0.3)' }}>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--brand-primary)', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 600 }}>
+                      Cleaned v{compareResult.target_version.version_number} (Active)
+                    </div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#FFFFFF' }}>
+                      {(compareResult.target_version.metrics.test_score * 100).toFixed(1)}% Test Score
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#10B981', marginTop: '4px' }}>
+                      Overfitting Gap: {(compareResult.target_version.metrics.overfitting_score * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Empty Prompt before first training */
+        <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.04)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px auto',
+            color: 'var(--text-muted)'
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+          </div>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '8px' }}>
+            Ready to Train Model
+          </h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 20px auto' }}>
+            Select your target column above and click <strong>Train & Analyze Model</strong> to compute train vs. test scores, evaluate overfitting, and track loss convergence.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==============================================================================
+// FILE SUMMARY: frontend/src/components/MLLabTab.tsx
+// ==============================================================================
+// WHAT THIS FILE CONTAINS AND DOES:
+// This component implements the Pedagogical Machine Learning Impact Lab & Generalization Engine:
+//   1. Target Column Detection & Selection: Queries target candidate variables and auto-classifies
+//      into regression vs classification tasks.
+//   2. Model Architecture Selection: Supports Decision Trees (with tunable max_depth slider),
+//      Ridge/Logistic Regression, Random Forests, and Multi-Layer Perceptron (Neural Network).
+//   3. Pedagogical Generalization Diagnostics: Color-coded health status banner
+//      (healthy_generalization, moderate_overfitting, severe_overfitting, underfitting) with
+//      backend plain-English pedagogical explanations.
+//   4. 4-KPI Metric Grid: Train score, Holdout Test score, Overfitting Gap (Δ), and RMSE/F1.
+//   5. Pure SVG Interactive Visualizations:
+//      - Overfitting diagnostics gauge (train vs test bars).
+//      - Neural network gradient descent loss curve over epochs.
+//      - Actual vs predicted scatter plot with 45-degree diagonal.
+//      - Feature importance / weight attribution horizontal bar chart.
+//   6. Cross-Version Generalization Benchmark: Side-by-side comparison of baseline raw v1 vs
+//      active cleaned dataset, showing performance gain (+R² / +Accuracy) and overfitting reduction.
+//
+// HOW IT CONNECTS TO OTHER FILES:
+// - Imports types from 'frontend/src/types/api.ts'.
+// - Calls 'api.getMLTargets', 'api.trainMLModel', and 'api.compareMLVersions' from 'frontend/src/services/api.ts'.
+// - Rendered inside 'frontend/src/App.tsx' when the user switches to the 'ml' tab.
+// ==============================================================================
