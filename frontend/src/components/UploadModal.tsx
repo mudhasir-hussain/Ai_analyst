@@ -5,13 +5,15 @@ interface UploadModalProps {
   onClose: () => void;
   onUploadSuccess: (file: File, sheetName?: string) => Promise<void>;
   onLoadSample?: () => void;
+  onLoadMLBenchmark?: () => void;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
   onClose,
   onUploadSuccess,
-  onLoadSample
+  onLoadSample,
+  onLoadMLBenchmark
 }) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -247,47 +249,93 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </span>
                 <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onLoadSample();
-                }}
-                className="btn-secondary"
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  background: 'rgba(99, 102, 241, 0.08)',
-                  borderColor: 'rgba(99, 102, 241, 0.3)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  textAlign: 'left'
-                }}
-              >
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--brand-primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#FFFFFF' }}>
-                    Load Global Enterprise Sales Demo (53 rows)
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onLoadSample();
+                  }}
+                  className="btn-secondary"
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    borderColor: 'rgba(99, 102, 241, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    textAlign: 'left'
+                  }}
+                >
+                  <div style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--brand-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
                   </div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                    Contains missing values, skew, outliers, and duplicates to test all AI functions
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#FFFFFF' }}>
+                      Enterprise Sales Demo (53 rows)
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                      General analytics, correlations, and executive reports
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+
+                {onLoadMLBenchmark && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onLoadMLBenchmark();
+                    }}
+                    className="btn-secondary"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      background: 'rgba(16, 185, 129, 0.08)',
+                      borderColor: 'rgba(16, 185, 129, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: '#10B981',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#FFFFFF' }}>
+                        SaaS Customer Churn ML Benchmark (146 rows)
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                        Optimized for ML Studio: Binary Churn (0/1), Lifetime Value, and Confusion Matrix
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
