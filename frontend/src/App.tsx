@@ -22,7 +22,7 @@ import { VisualizationsTab } from './components/VisualizationsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { VersionHistoryDrawer } from './components/VersionHistoryDrawer';
 import { MLLabTab } from './components/MLLabTab';
-import { getSampleDatasetFile, getMLBenchmarkDatasetFile } from './data/sampleDataset';
+import { getSampleDatasetFile } from './data/sampleDataset';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<'table' | 'health' | 'visualizations' | 'reports' | 'history' | 'ml'>('table');
@@ -102,23 +102,9 @@ export function App() {
     try {
       const file = getSampleDatasetFile();
       await handleUploadSuccess(file);
-      showToast('Loaded Global Enterprise Sales benchmark dataset!', 'success');
+      showToast('Loaded SaaS Customer Churn benchmark dataset (146 records)!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Sample load failed', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleLoadMLBenchmark = async () => {
-    setIsProcessing(true);
-    try {
-      const file = getMLBenchmarkDatasetFile();
-      await handleUploadSuccess(file);
-      showToast('Loaded SaaS Customer Churn ML benchmark (146 records, churn & LTV targets)!', 'success');
-      setActiveTab('ml');
-    } catch (err: any) {
-      showToast(err.message || 'ML benchmark load failed', 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -438,7 +424,6 @@ export function App() {
                 versions={versions}
                 activeVersionNumber={activeVersion?.version_number}
                 onLoadSample={handleLoadSample}
-                onLoadMLBenchmark={handleLoadMLBenchmark}
                 showToast={showToast}
               />
             )}
@@ -461,7 +446,6 @@ export function App() {
         onClose={() => setIsUploadModalOpen(false)}
         onUploadSuccess={handleUploadSuccess}
         onLoadSample={handleLoadSample}
-        onLoadMLBenchmark={handleLoadMLBenchmark}
       />
     </div>
   );

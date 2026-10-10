@@ -373,6 +373,7 @@ class MLTrainRequest(BaseModel):
     test_size: float = Field(0.2, ge=0.1, le=0.5, description="Proportion of the dataset reserved for test holdout evaluation (0.1 to 0.5).")
     hyperparameters: Dict[str, Any] = Field(default_factory=dict, description="Model hyperparameters (e.g. max_depth, n_estimators, max_iter).")
     version_id: Optional[UUID4] = Field(None, description="Optional version to train on; defaults to active version.")
+    version_number: Optional[int] = Field(None, description="Optional version number to train on; defaults to active version.")
     selected_features: Optional[List[str]] = Field(None, description="Optional explicit feature subsets selected by user.")
 
 

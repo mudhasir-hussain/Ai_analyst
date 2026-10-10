@@ -12,7 +12,6 @@ interface MLLabTabProps {
   versions: DatasetVersion[];
   activeVersionNumber?: number;
   onLoadSample?: () => void;
-  onLoadMLBenchmark?: () => void;
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
 
@@ -21,7 +20,6 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   versions,
   activeVersionNumber = 1,
   onLoadSample,
-  onLoadMLBenchmark,
   showToast
 }) => {
   // State
@@ -165,7 +163,8 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         model_type: modelType,
         test_size: testSize,
         hyperparameters,
-        selected_features: selectedFeatures
+        selected_features: selectedFeatures,
+        version_number: activeVersionNumber
       });
 
       setTrainResult(res);
@@ -296,14 +295,9 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
           Experience first-hand how raw, uncleaned data (missing values, extreme outliers, duplicate rows) degrades model performance and causes severe overfitting. Train models directly, toggle input features in the What-If Sandbox, inspect confusion matrices, and benchmark raw vs. cleaned versions.
         </p>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          {onLoadMLBenchmark && (
-            <button onClick={onLoadMLBenchmark} className="btn-primary" style={{ padding: '10px 22px', fontSize: '0.9rem' }}>
-              Load SaaS Customer Churn ML Benchmark (146 rows)
-            </button>
-          )}
           {onLoadSample && (
-            <button onClick={onLoadSample} className="btn-secondary" style={{ padding: '10px 22px', fontSize: '0.9rem' }}>
-              Load Enterprise Sales Demo (53 rows)
+            <button onClick={onLoadSample} className="btn-primary" style={{ padding: '10px 22px', fontSize: '0.9rem' }}>
+              Load SaaS Customer Churn Dataset (146 rows)
             </button>
           )}
         </div>
@@ -347,16 +341,6 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
           </div>
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {onLoadMLBenchmark && (
-              <button
-                onClick={onLoadMLBenchmark}
-                className="btn-secondary"
-                style={{ padding: '8px 14px', fontSize: '0.82rem', borderColor: 'rgba(16, 185, 129, 0.4)', color: '#34D399' }}
-                title="Load a dedicated SaaS Churn dataset with clear binary Churn (0/1) and continuous Lifetime Value targets"
-              >
-                Switch to Churn ML Benchmark
-              </button>
-            )}
             <button
               onClick={handleTrain}
               disabled={isTraining || !selectedTarget || selectedFeatures.length === 0 || currentCandidate?.is_suitable === false}

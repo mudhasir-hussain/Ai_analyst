@@ -39,7 +39,20 @@ def _load_dataframe_for_version(
 
     # 1. Mock / Local Dev Mode
     if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
-        target_vnum = version_number or 1
+        if version_number:
+            target_vnum = version_number
+        else:
+            # Detect highest version number in dev cache for this dataset (active version)
+            v_nums = []
+            prefix = f"{str_dataset_id}_v"
+            for k in _DEV_DATAFRAME_CACHE.keys():
+                if k.startswith(prefix):
+                    try:
+                        v_nums.append(int(k[len(prefix):]))
+                    except ValueError:
+                        pass
+            target_vnum = max(v_nums) if v_nums else 1
+
         key = f"{str_dataset_id}_v{target_vnum}"
         if key in _DEV_DATAFRAME_CACHE:
             return _DEV_DATAFRAME_CACHE[key].copy(), target_vnum
@@ -107,7 +120,7 @@ def train_ml_model(
     computes feature importances, and returns pedagogical takeaways.
     """
     logger.info(f"User {current_user.id} training {payload.model_type} on target '{payload.target_column}' for dataset {dataset_id}")
-    df, v_num = _load_dataframe_for_version(dataset_id, version_id=payload.version_id)
+    df, v_num = _load_dataframe_for_version(dataset_id, version_id=payload.version_id, version_number=payload.version_number)
 
     if payload.target_column not in df.columns:
         raise ValidationError(f"Target column '{payload.target_column}' does not exist in dataset.", "COLUMN_NOT_FOUND")

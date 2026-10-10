@@ -319,6 +319,7 @@ export interface MLTrainRequest {
   test_size?: number;
   hyperparameters?: Record<string, any>;
   version_id?: string;
+  version_number?: number;
   selected_features?: string[];
 }
 
