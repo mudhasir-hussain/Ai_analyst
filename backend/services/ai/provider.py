@@ -2,6 +2,7 @@ import abc
 import json
 import re
 import logging
+import os
 from typing import Optional, Dict, Any
 import httpx
 from core.config import settings
@@ -115,13 +116,37 @@ class OpenAIProvider(BaseLLMProvider):
 
 class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, timeout: Optional[int] = None):
-        self.api_key = api_key or getattr(settings, "GEMINI_API_KEY", None) or settings.LLM_API_KEY
-        self.model = model or "gemini-1.5-flash"
+        self.api_key = api_key or getattr(settings, "GEMINI_API_KEY", None) or settings.LLM_API_KEY or os.environ.get("GEMINI_API_KEY")
+        self.model = model or getattr(settings, "LLM_MODEL_NAME", None) or "gemini-2.5-flash"
         self.timeout = timeout or getattr(settings, "LLM_TIMEOUT_SECONDS", 30)
-        if not self.api_key:
-            raise LLMProviderError("Google Gemini API key not configured.", "GEMINI_KEY_MISSING")
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
+        if not self.api_key:
+            if settings.ENVIRONMENT in {"development", "test"}:
+                logger.warning("Gemini API key not configured. Falling back to MockLLMProvider.")
+                return MockLLMProvider(model="gemini-fallback").generate(system_prompt, user_prompt)
+            raise LLMProviderError("Google Gemini API key not configured. Set GEMINI_API_KEY in backend/.env.", "GEMINI_KEY_MISSING")
+
+        # 1. First attempt: Official google-genai SDK
+        try:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=self.api_key)
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json"
+            )
+            response = client.models.generate_content(
+                model=self.model,
+                contents=user_prompt,
+                config=config
+            )
+            if response and response.text:
+                return response.text
+        except Exception as sdk_err:
+            logger.warning(f"google-genai SDK call error ({sdk_err}). Trying direct HTTP REST API.")
+
+        # 2. Second attempt: Direct HTTP REST call to Gemini endpoint
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         payload = {
             "contents": [
@@ -152,10 +177,19 @@ class GeminiProvider(BaseLLMProvider):
                     raise LLMProviderError("Gemini candidate has no content parts.", "EMPTY_LLM_RESPONSE")
                 return parts[0].get("text", "")
         except httpx.TimeoutException:
+            if settings.ENVIRONMENT in {"development", "test"}:
+                logger.warning(f"Gemini request timed out after {self.timeout}s. Falling back to MockLLMProvider.")
+                return MockLLMProvider(model="gemini-fallback").generate(system_prompt, user_prompt)
             raise LLMProviderError(f"Gemini request timed out after {self.timeout}s.", "GEMINI_TIMEOUT")
-        except LLMProviderError:
+        except LLMProviderError as lpe:
+            if settings.ENVIRONMENT in {"development", "test"}:
+                logger.warning(f"Gemini error ({lpe.detail}). Falling back to MockLLMProvider.")
+                return MockLLMProvider(model="gemini-fallback").generate(system_prompt, user_prompt)
             raise
         except Exception as e:
+            if settings.ENVIRONMENT in {"development", "test"}:
+                logger.warning(f"Gemini unexpected error ({e}). Falling back to MockLLMProvider.")
+                return MockLLMProvider(model="gemini-fallback").generate(system_prompt, user_prompt)
             raise LLMProviderError(f"Gemini request failed: {str(e)}", "GEMINI_ERROR")
 
 
@@ -228,7 +262,7 @@ class MockLLMProvider(BaseLLMProvider):
         # Add clear notice if running in offline fallback mode
         if "fallback" in self.model:
             warnings.append(
-                f"Offline fallback engine active ({self.model}). Local Ollama server was not reachable at {settings.OLLAMA_BASE_URL}."
+                f"Offline fallback engine active ({self.model}). Add GEMINI_API_KEY in backend/.env for live cloud-accelerated Gemini AI."
             )
 
         # Extract available columns and metadata from dataset context inside prompt if provided
@@ -535,19 +569,19 @@ def get_llm_provider(provider_name: Optional[str] = None, timeout: Optional[int]
     Factory creating an instance of the configured LLM provider.
     Falls back gracefully to MockLLMProvider in development/test if requested provider is unreachable.
     """
-    target = (provider_name or settings.LLM_PROVIDER or "ollama").lower().strip()
+    target = (provider_name or settings.LLM_PROVIDER or "gemini").lower().strip()
 
     if target == "mock":
         return MockLLMProvider()
 
-    elif target == "ollama":
-        return OllamaProvider(timeout=timeout)
+    elif target in {"gemini", "google"}:
+        return GeminiProvider(timeout=timeout)
 
     elif target in {"openai", "chatgpt"}:
         return OpenAIProvider(timeout=timeout)
 
-    elif target in {"gemini", "google"}:
-        return GeminiProvider(timeout=timeout)
+    elif target == "ollama":
+        return OllamaProvider(timeout=timeout)
 
     elif target in {"huggingface", "hf"}:
         return HuggingFaceProvider(timeout=timeout)

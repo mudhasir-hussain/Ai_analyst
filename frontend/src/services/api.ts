@@ -225,7 +225,7 @@ export const api = {
       };
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        throw new Error('AI planning request timed out after 75s. Local Ollama server may be busy or processing large schemas.');
+        throw new Error('AI planning request timed out after 75s. The AI model took too long to respond.');
       }
       throw err;
     } finally {

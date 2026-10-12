@@ -17,7 +17,7 @@ pydantic-settings>=2.2.0
 chardet>=5.2.0
 
 # AI & LLM Providers
-ollama>=0.3.0
+google-genai>=1.0.0
 
 # Machine Learning & Scientific Computing
 scikit-learn>=1.4.0

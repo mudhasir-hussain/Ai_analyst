@@ -96,15 +96,6 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
     };
   }, [isResizing]);
 
-  const setPresetWidth = (w: number) => {
-    const clamped = Math.max(360, Math.min(window.innerWidth - 40, w));
-    setPanelWidth(clamped);
-    try {
-      localStorage.setItem('ai_analyst_panel_width', String(clamped));
-    } catch {
-      // ignore
-    }
-  };
 
   const toggleExpand = () => {
     setPanelWidth(prev => {
@@ -313,99 +304,17 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
               </svg>
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h3 style={{ fontSize: '0.96rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>
-                  AI Assistant
-                </h3>
-                <span
-                  title="Live Scaled Width"
-                  style={{
-                    fontSize: '0.66rem',
-                    fontFamily: 'monospace',
-                    padding: '1px 6px',
-                    borderRadius: '4px',
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    color: 'var(--text-muted)'
-                  }}
-                >
-                  {Math.round(panelWidth)}px
-                </span>
-              </div>
+              <h3 style={{ fontSize: '0.96rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>
+                AI Assistant
+              </h3>
               <span style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                Deterministic Plan & Ollama
+                Autonomous Cleaning & Gemini AI
               </span>
             </div>
           </div>
 
-          {/* Scale Presets & Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-            {/* Width Presets */}
-            <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '6px', padding: '2px', gap: '2px' }}>
-              <button
-                onClick={() => setPresetWidth(420)}
-                title="Scale to 420px (Compact)"
-                style={{
-                  background: Math.abs(panelWidth - 420) < 30 ? 'var(--brand-primary)' : 'transparent',
-                  color: Math.abs(panelWidth - 420) < 30 ? '#fff' : 'var(--text-muted)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  padding: '3px 6px',
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                420
-              </button>
-              <button
-                onClick={() => setPresetWidth(560)}
-                title="Scale to 560px (Standard)"
-                style={{
-                  background: Math.abs(panelWidth - 560) < 30 ? 'var(--brand-primary)' : 'transparent',
-                  color: Math.abs(panelWidth - 560) < 30 ? '#fff' : 'var(--text-muted)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  padding: '3px 6px',
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                560
-              </button>
-              <button
-                onClick={() => setPresetWidth(800)}
-                title="Scale to 800px (Wide)"
-                style={{
-                  background: Math.abs(panelWidth - 800) < 30 ? 'var(--brand-primary)' : 'transparent',
-                  color: Math.abs(panelWidth - 800) < 30 ? '#fff' : 'var(--text-muted)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  padding: '3px 6px',
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                800
-              </button>
-              <button
-                onClick={() => setPresetWidth(Math.floor(window.innerWidth * 0.5))}
-                title="Scale to 50% split view"
-                style={{
-                  background: Math.abs(panelWidth - Math.floor(window.innerWidth * 0.5)) < 30 ? 'var(--brand-primary)' : 'transparent',
-                  color: Math.abs(panelWidth - Math.floor(window.innerWidth * 0.5)) < 30 ? '#fff' : 'var(--text-muted)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  padding: '3px 6px',
-                  fontSize: '0.68rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                50%
-              </button>
-            </div>
+          {/* Panel Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
 
             {/* Quick Toggle Expand */}
             <button

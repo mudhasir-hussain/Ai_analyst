@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = "your-supabase-anon-key"
     SUPABASE_SERVICE_ROLE_KEY: str = "your-supabase-service-role-key"
     
-    LLM_PROVIDER: str = "ollama"
-    LLM_MODEL_NAME: str = "qwen2.5:7b"
+    LLM_PROVIDER: str = "gemini"
+    LLM_MODEL_NAME: str = "gemini-2.5-flash"
     LLM_API_KEY: Optional[str] = None
     
     OLLAMA_BASE_URL: str = "http://localhost:11434"
