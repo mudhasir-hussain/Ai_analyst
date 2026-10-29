@@ -1,5 +1,5 @@
 ---
-title: AI Data Analyst
+title: Spectra - AI Data Analyst
 emoji: 📊
 colorFrom: indigo
 colorTo: purple
@@ -9,7 +9,7 @@ pinned: false
 license: mit
 ---
 
-# AI Data Analyst 📊
+# Spectra — AI Data Analyst 📊
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -20,7 +20,7 @@ license: mit
 
 Most automated data analysis tools fall into two extremes: either you're writing repetitive boilerplate code in Jupyter notebooks just to spot missing values and train basic models, or you're using black-box "AI agents" that hallucinate Python scripts and distort your dataset.
 
-I built **AI Data Analyst** to bridge that gap. It's a full-stack platform that provides automated data profiling, deterministic data cleaning, instant visual analytics, no-code machine learning, and executive reporting. 
+I built **Spectra** to bridge that gap. It's a full-stack platform that provides automated data profiling, deterministic data cleaning, instant visual analytics, no-code machine learning, and executive reporting. 
 
 Instead of letting an LLM run arbitrary code on your system, the platform uses **deterministic, vectorized transformation pipelines** where AI only translates natural language into structured, human-approvable operations.
 
@@ -149,10 +149,10 @@ To build and run the complete full-stack application in a container:
 
 ```bash
 # Build the image
-docker build -t ai-data-analyst .
+docker build -t spectra .
 
 # Run container on port 7860
-docker run -p 7860:7860 ai-data-analyst
+docker run -p 7860:7860 spectra
 ```
 
 You can also deploy this repository directly to **Hugging Face Spaces** using Docker SDK on port `7860`.

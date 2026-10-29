@@ -41,11 +41,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             </svg>
           </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: '1rem', letterSpacing: '-0.2px', color: '#FFFFFF' }}>
-              Data Analyst
+            <div style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '-0.2px', color: '#FFFFFF' }}>
+              Spectra
             </div>
             <div className="brand-subtitle" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 500 }}>
-              Analytics Workspace
+              AI Data Analyst
             </div>
           </div>
         </div>
