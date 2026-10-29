@@ -12,19 +12,25 @@ from api.ml import router as ml_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ai_analyst_backend")
 
+from core.rate_limit import RateLimitMiddleware
+
 app = FastAPI(
     title="AI Data Analyst API",
     description="Backend API for the AI Data Analyst portfolio project. Handles file parsing, data cleaning, stats calculation, and AI interactions.",
     version="1.0.0"
 )
 
+cors_origins = [o.strip() for o in getattr(settings, "ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+cors_allow_all = "*" in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"] if cors_allow_all else cors_origins,
+    allow_credentials=not cors_allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
@@ -34,6 +40,17 @@ async def app_exception_handler(request: Request, exc: AppException):
         content={
             "detail": exc.detail,
             "error_code": exc.error_code
+        }
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled server error at {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server error occurred. Internal technical details have been safely redacted.",
+            "error_code": "INTERNAL_SERVER_ERROR"
         }
     )
 
@@ -81,7 +98,7 @@ if frontend_dist:
     from fastapi.responses import FileResponse
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        if full_path.startswith(("datasets", "reports", "health", "projects", "docs", "openapi.json")):
+        if full_path.startswith(("datasets", "reports", "health", "projects", "docs", "redoc", "openapi.json")):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="API route not found")
         target_file = os.path.join(frontend_dist, full_path)

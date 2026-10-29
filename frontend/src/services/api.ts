@@ -16,10 +16,12 @@ import type {
   MLTrainRequest,
   MLTrainResponse,
   MLCompareRequest,
-  MLCompareResponse
+  MLCompareResponse,
+  MLPredictResponse,
+  AIAskResponse
 } from '../types/api';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('ai_analyst_token') || 'mock-token';
@@ -369,6 +371,52 @@ export const api = {
       body: JSON.stringify(req)
     });
     return handleResponse<MLCompareResponse>(res);
+  },
+
+  // 17. ML Single-Record Live Prediction
+  async predictMLModel(datasetId: string, features: Record<string, any>): Promise<MLPredictResponse> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ml/predict`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify({ features })
+    });
+    return handleResponse<MLPredictResponse>(res);
+  },
+
+  // 18. Export Standalone ML Inference Code
+  async exportMLCode(datasetId: string): Promise<{ code: string; filename: string }> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ml/export-code`, {
+      headers: getAuthHeader()
+    });
+    return handleResponse<{ code: string; filename: string }>(res);
+  },
+
+  // 19. 1-Click AI Auto-Heal Dataset Health
+  async autoHealDataset(datasetId: string): Promise<TransformResponse> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ai/auto-heal`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+    return handleResponse<TransformResponse>(res);
+  },
+
+  // 20. 'Talk to Your Data' Analytical Q&A
+  async askAIAboutDataset(datasetId: string, question: string): Promise<AIAskResponse> {
+    const res = await fetch(`${API_BASE}/datasets/${datasetId}/ai/ask`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify({ question })
+    });
+    return handleResponse<AIAskResponse>(res);
   }
 };
 

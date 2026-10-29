@@ -22,12 +22,20 @@ def get_current_user(
 
     token = credentials.credentials
 
-    if settings.ENVIRONMENT == "development" and token == "mock-token":
-        logger.info("Authenticated using local mock token")
-        class MockUser:
-            id = "00000000-0000-0000-0000-000000000000"
-            email = "developer@local.test"
-        return MockUser()
+    if token == "mock-token":
+        if settings.ENVIRONMENT.lower().strip() == "development":
+            logger.info("Authenticated using local development mock token")
+            class MockUser:
+                id = "00000000-0000-0000-0000-000000000000"
+                email = "developer@local.test"
+            return MockUser()
+        else:
+            logger.warning("Mock token access rejected in non-development environment.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Mock token authentication is strictly disabled outside development environment.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     try:
         user_response = supabase_client.auth.get_user(token)

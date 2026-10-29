@@ -25,6 +25,7 @@ CRITICAL CONSTRAINTS:
 5. MULTI-COLUMN EXPANSION: When the user asks to operate on "all numeric columns", "all columns", or a group of columns (e.g., "fill missing in all numeric columns"), you MUST emit a distinct operation in the "operations" list for EACH matching column in the dataset schema. NEVER generate only one operation when multiple columns were requested.
 6. IDENTIFIER INTEGRITY: NEVER apply statistical calculations or imputations ("mean", "median", "mode") to identifier or key columns (e.g., columns named 'id', '*_id', 'order_id', 'customer_id', or primary/foreign keys). If an identifier has missing values, suggest dropping missing rows or warn the user, but NEVER impute an ID with a median or mean.
 7. GENERAL PREPROCESSING PIPELINES: When the user asks for a "good plan to preprocess this data", "clean data", or general preparation, formulate a robust, cohesive multi-step pipeline combining duplicate removal, missingness imputation (median for numeric columns with nulls), and string whitespace trimming.
+8. INFORMATIONAL & DATA INQUIRIES: If the user is asking a question about the dataset (e.g., what a column means, abbreviations like 'Parch' or 'c' and 'q', data definitions, or statistical observations), provide a direct, helpful, and concise plain-English explanation (under 80 words) in the 'summary' field, and set "operations": []. NEVER refuse to answer legitimate data questions with "this is not a transformation".
 
 OPERATION SCHEMAS:
 - "rename_column": {{"type": "rename_column", "column": "<existing_col>", "new_name": "<new_name>"}}

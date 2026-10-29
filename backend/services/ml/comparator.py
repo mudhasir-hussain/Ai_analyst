@@ -45,28 +45,35 @@ def compare_model_across_dataframes(
         target_rmse = target_result.metrics.regression_metrics.get("rmse", 0) if target_result.metrics.regression_metrics else 0
         rmse_delta = float(round(target_rmse - base_rmse, 4))
 
-    # Compose executive pedagogical narrative
+    # Compose executive narrative explaining performance and overfitting differences
     metric_name = "R² score" if base_result.task_type == "regression" else "Accuracy"
     if score_delta > 0:
         gain_str = f"+{round(score_delta * 100, 1)}%"
         summary = (
-            f"Data preprocessing on Version {target_version_number} directly enhanced model generalization! "
+            f"Data preprocessing on Version {target_version_number} directly enhanced model accuracy! "
             f"The test {metric_name} improved by {gain_str} compared to raw Version {base_version_number}. "
         )
     elif score_delta < 0:
-        summary = (
-            f"The test {metric_name} shifted by {round(score_delta * 100, 1)}%. "
-            "Filtering records or modifying columns adjusted the feature distributions. "
-        )
+        if overfitting_gap_reduction > 0.02:
+            summary = (
+                f"The test {metric_name} shifted by {round(score_delta * 100, 1)}%, but the overfitting gap closed by +{round(overfitting_gap_reduction * 100, 1)}%. "
+                f"Why did raw {metric_name} drop? In messy raw data (v{base_version_number}), duplicate rows or uncleaned noise often artificially inflate test scores because the model memorized duplicate rows. "
+                f"Cleaned v{target_version_number} removes these false shortcuts, giving you an honest, reliable benchmark that will truly generalize to new data."
+            )
+        else:
+            summary = (
+                f"The test {metric_name} shifted by {round(score_delta * 100, 1)}%. "
+                "Filtering records or modifying columns adjusted the feature distributions. Check if any highly predictive columns were dropped."
+            )
     else:
         summary = (
             f"The test {metric_name} remained stable across both dataset versions. "
         )
 
-    if overfitting_gap_reduction > 0.05:
+    if overfitting_gap_reduction > 0.05 and score_delta >= 0:
         summary += (
             f"Notably, data cleaning reduced the train-test overfitting gap by {round(overfitting_gap_reduction * 100, 1)}%, "
-            "confirming that eliminating duplicates and clipping extreme outliers prevented the model from memorizing sample noise."
+            "confirming that eliminating duplicates and clipping extreme outliers stopped the model from memorizing sample noise."
         )
 
     return MLCompareResponse(

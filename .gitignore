@@ -1,6 +1,16 @@
-# Local user request specific exclusions
+# Local user request specific exclusions and planning artifacts
 goal.txt
+goals.txt
 steps.txt
+step.txt
+*.plan.md
+*implementation_plan*
+walkthrough.md
+task.md
+scratch/
+scratchpad*
+.agents/
+.gemini/
 
 # Python virtual environment, bytecode, and test cache
 venv/

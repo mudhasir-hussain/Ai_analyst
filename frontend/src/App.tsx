@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { api } from './services/api';
 import type {
   Dataset,
@@ -202,15 +202,7 @@ export function App() {
     }
   };
 
-  // Automatically refresh or generate executive report when on the 'reports' tab
-  // whenever the active preprocessed dataset version changes or if no report is loaded
-  useEffect(() => {
-    if (activeTab === 'reports' && dataset && activeVersion && !isGeneratingReport) {
-      if (!report || report.version_number !== activeVersion.version_number) {
-        handleGenerateReport(reportFormat, undefined, false);
-      }
-    }
-  }, [activeTab, activeVersion?.version_number, activeVersion?.id, dataset?.id]);
+  // Executive report is generated on-demand when user clicks Compile Report in ReportsTab
 
   // File export download
   const handleExportDataset = async (format: 'csv' | 'xlsx') => {
@@ -270,6 +262,24 @@ export function App() {
     setIsAIAssistantOpen(true);
     if (issue.recommendation) {
       showToast(`Recommendation copied to AI Assistant: ${issue.recommendation}`, 'info');
+    }
+  };
+
+  // 1-Click AI Auto-Healing
+  const handleAutoHeal = async () => {
+    if (!dataset) {
+      showToast('Please upload a dataset or load the sample data first.', 'info');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await api.autoHealDataset(dataset.id);
+      showToast(res.operation?.summary || `Auto-healed dataset to Version ${res.version_number}!`, 'success');
+      await refreshDatasetDetails(dataset.id);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to auto-heal dataset.', 'error');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -374,6 +384,8 @@ export function App() {
               health={health}
               profile={profile}
               onRemediateIssue={handleRemediateIssue}
+              onAutoHeal={handleAutoHeal}
+              isAutoHealing={isProcessing}
             />
           )}
 
@@ -438,6 +450,7 @@ export function App() {
         onApprovePlan={handleApproveAIPlan}
         isGeneratingPlan={isGeneratingAIPlan}
         isExecutingPlan={isProcessing}
+        datasetId={dataset?.id}
       />
 
       {/* Ingestion Upload Modal */}

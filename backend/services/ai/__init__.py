@@ -3,6 +3,8 @@ from services.ai.provider import (
     OllamaProvider,
     OpenAIProvider,
     GeminiProvider,
+    GroqProvider,
+    ResilientLLMProvider,
     HuggingFaceProvider,
     MockLLMProvider,
     get_llm_provider
@@ -25,6 +27,8 @@ __all__ = [
     "OllamaProvider",
     "OpenAIProvider",
     "GeminiProvider",
+    "GroqProvider",
+    "ResilientLLMProvider",
     "HuggingFaceProvider",
     "MockLLMProvider",
     "get_llm_provider",

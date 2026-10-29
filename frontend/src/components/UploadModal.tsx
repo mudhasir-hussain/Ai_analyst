@@ -48,6 +48,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       return;
     }
 
+    // Client-side quick column count check for CSV files
+    if (fileName.endsWith('.csv')) {
+      file.slice(0, 16384).text().then(text => {
+        const firstLine = text.split(/\r?\n/)[0];
+        if (firstLine) {
+          const colCount = firstLine.split(',').length;
+          if (colCount > 50) {
+            setErrorMessage(`Dataset contains ${colCount} columns. Datasets must not contain more than 50 columns.`);
+            setSelectedFile(null);
+            return;
+          }
+        }
+      }).catch(() => {});
+    }
+
     setSelectedFile(file);
   };
 
@@ -109,7 +124,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
             <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)' }}>Upload Dataset</h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Supports CSV and Excel files up to 25 MB</p>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Supports CSV & Excel (max 50 columns • up to 25 MB)</p>
           </div>
           <button
             onClick={onClose}
@@ -208,10 +223,34 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   Click to select or drag and drop your file here
                 </p>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '4px' }}>
-                  Supported formats: CSV, Excel (.xlsx)
+                  Supported formats: CSV, Excel (.xlsx) • Up to 50 columns • Max 25 MB
                 </p>
               </div>
             )}
+          </div>
+
+          {/* 50-Column Constraint Callout */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            background: 'rgba(99, 102, 241, 0.08)',
+            border: '1px solid rgba(99, 102, 241, 0.22)',
+            borderRadius: 'var(--radius-md)',
+            padding: '10px 14px',
+            marginBottom: '20px',
+            fontSize: '0.8rem',
+            color: '#CBD5E1',
+            lineHeight: 1.45
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand-primary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            <span>
+              <strong>Dataset Constraint:</strong> Datasets should not contain more than <strong>50 columns</strong>. This ensures clean table rendering, fast automated health profiling, and stable AI/ML models.
+            </span>
           </div>
 
           {isExcel && (

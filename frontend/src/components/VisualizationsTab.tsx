@@ -15,15 +15,20 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
   onRequestCustomChart
 }) => {
   const [activeChart, setActiveChart] = useState<VisualizationResponse | null>(previews[0] || null);
-  const [chartType, setChartType] = useState<string>('bar');
+  const [chartType, setChartType] = useState<string>('scatter');
   const [xCol, setXCol] = useState<string>(columns[0] || '');
-  const [yCol, setYCol] = useState<string>(columns[1] || '');
+  const [yCol, setYCol] = useState<string>(columns[1] || columns[0] || '');
   const [aggregation, setAggregation] = useState<string>('sum');
   const [isRendering, setIsRendering] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
 
   useEffect(() => {
     if (previews.length > 0 && !activeChart) {
-      setActiveChart(previews[0]);
+      const initial = previews[0];
+      setActiveChart(initial);
+      if (initial.chart_type) setChartType(initial.chart_type);
+      if (initial.x_column) setXCol(initial.x_column);
+      if (initial.y_column) setYCol(initial.y_column);
     }
   }, [previews]);
 
@@ -32,21 +37,25 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
       if (!xCol || !columns.includes(xCol)) setXCol(columns[0]);
       if (!yCol || !columns.includes(yCol)) setYCol(columns[1] || columns[0]);
     }
-  }, [columns, xCol, yCol]);
+  }, [columns]);
 
   const handleBuildChart = async () => {
     try {
       setIsRendering(true);
+      setChartError(null);
       const res = await onRequestCustomChart({
         chart_type: chartType,
         x_column: xCol,
         y_column: yCol,
         aggregation: aggregation,
-        limit: 20
+        limit: 50
       });
-      setActiveChart(res);
-    } catch (err) {
+      if (res && res.data) {
+        setActiveChart(res);
+      }
+    } catch (err: any) {
       console.error("Error generating chart:", err);
+      setChartError(err?.message || "Failed to generate chart. Ensure columns are appropriate for this chart type.");
     } finally {
       setIsRendering(false);
     }
@@ -124,14 +133,16 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
         </svg>
       );
     } else if (chart.chart_type === 'line') {
-      const values = data.map(d => Number(d.value || 0));
+      const xKey = chart.x_column || Object.keys(data[0] || {})[0] || 'x';
+      const yKey = chart.y_column || Object.keys(data[0] || {})[1] || 'y';
+      const values = data.map(d => Number(d.value !== undefined ? d.value : (d[yKey] !== undefined ? d[yKey] : 0)));
       const maxVal = Math.max(...values, 1);
       const minVal = Math.min(...values, 0);
       const range = maxVal - minVal || 1;
 
       const points = data.map((d, idx) => {
         const x = padding.left + (idx / Math.max(1, data.length - 1)) * chartWidth;
-        const val = Number(d.value || 0);
+        const val = Number(d.value !== undefined ? d.value : (d[yKey] !== undefined ? d[yKey] : 0));
         const y = height - padding.bottom - ((val - minVal) / range) * chartHeight;
         return `${x},${y}`;
       }).join(' ');
@@ -146,7 +157,7 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
           />
           {data.map((d, idx) => {
             const x = padding.left + (idx / Math.max(1, data.length - 1)) * chartWidth;
-            const val = Number(d.value || 0);
+            const val = Number(d.value !== undefined ? d.value : (d[yKey] !== undefined ? d[yKey] : 0));
             const y = height - padding.bottom - ((val - minVal) / range) * chartHeight;
             return (
               <circle
@@ -158,7 +169,7 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
                 stroke="var(--accent-cyan)"
                 strokeWidth="2"
               >
-                <title>{`${d.name}: ${val.toLocaleString()}`}</title>
+                <title>{`${d.name || d[xKey] || idx}: ${val.toLocaleString()}`}</title>
               </circle>
             );
           })}
@@ -170,8 +181,8 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
 
       const validPoints = data
         .map(d => ({
-          x: Number(d[xKey] ?? d.x ?? 0),
-          y: Number(d[yKey] ?? d.y ?? 0),
+          x: Number(d.x !== undefined && d.x !== null ? d.x : (d[xKey] ?? 0)),
+          y: Number(d.y !== undefined && d.y !== null ? d.y : (d[yKey] ?? 0)),
           label: d.label || d.name || ''
         }))
         .filter(p => !isNaN(p.x) && !isNaN(p.y));
@@ -319,11 +330,12 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
     } else if (chart.chart_type === 'box') {
       const bData = data[0] || {};
       const minVal = Number(bData.min ?? 0);
-      const q1Val = Number(bData.q1 ?? 0);
+      const q1Val = Number(bData.q1 ?? bData.q25 ?? 0);
       const medVal = Number(bData.median ?? 0);
-      const q3Val = Number(bData.q3 ?? 0);
+      const q3Val = Number(bData.q3 ?? bData.q75 ?? 0);
       const maxVal = Number(bData.max ?? 0);
-      const outliers: number[] = Array.isArray(bData.outliers) ? bData.outliers : [];
+      const rawOutliers = bData.outliers ?? bData.sample_outliers;
+      const outliers: number[] = Array.isArray(rawOutliers) ? rawOutliers : [];
 
       const allVals = [minVal, q1Val, medVal, q3Val, maxVal, ...outliers];
       const boundMin = Math.min(...allVals);
@@ -440,7 +452,12 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
                   key={idx}
                   onClick={() => {
                     const matchingPreview = previews.find(p => p.title === rec.title);
-                    if (matchingPreview) setActiveChart(matchingPreview);
+                    if (matchingPreview) {
+                      setActiveChart(matchingPreview);
+                      if (matchingPreview.chart_type) setChartType(matchingPreview.chart_type);
+                      if (matchingPreview.x_column) setXCol(matchingPreview.x_column);
+                      if (matchingPreview.y_column) setYCol(matchingPreview.y_column);
+                    }
                   }}
                   className="glass-panel"
                   style={{
@@ -525,16 +542,17 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
                 onChange={(e) => setChartType(e.target.value)}
                 style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '0.85rem' }}
               >
-                <option value="bar">Bar Chart</option>
-                <option value="line">Line Chart</option>
-                <option value="scatter">Scatter Plot</option>
-                <option value="histogram">Histogram</option>
+                <option value="scatter">Scatter Plot (Correlation)</option>
+                <option value="bar">Bar Chart (Categorical)</option>
+                <option value="line">Line Chart (Sequential)</option>
+                <option value="histogram">Histogram (Distribution)</option>
+                <option value="box">Box Plot (Outliers & IQR)</option>
               </select>
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                X-Axis Column
+                X-Axis Column {chartType === 'scatter' ? '(Numeric)' : ''}
               </label>
               <select
                 value={xCol}
@@ -547,7 +565,7 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
 
             <div>
               <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Y-Axis Column (Value)
+                Y-Axis Column {chartType === 'scatter' ? '(Numeric)' : '(Value)'}
               </label>
               <select
                 value={yCol}
@@ -558,22 +576,30 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
               </select>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                Aggregation
-              </label>
-              <select
-                value={aggregation}
-                onChange={(e) => setAggregation(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '0.85rem' }}
-              >
-                <option value="sum">Sum</option>
-                <option value="mean">Mean (Average)</option>
-                <option value="count">Count</option>
-                <option value="min">Minimum</option>
-                <option value="max">Maximum</option>
-              </select>
-            </div>
+            {chartType !== 'scatter' && chartType !== 'box' && (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  Aggregation
+                </label>
+                <select
+                  value={aggregation}
+                  onChange={(e) => setAggregation(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                >
+                  <option value="sum">Sum</option>
+                  <option value="mean">Mean (Average)</option>
+                  <option value="count">Count</option>
+                  <option value="min">Minimum</option>
+                  <option value="max">Maximum</option>
+                </select>
+              </div>
+            )}
+
+            {chartError && (
+              <div style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#FCA5A5', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                {chartError}
+              </div>
+            )}
 
             <button
               onClick={handleBuildChart}
@@ -581,7 +607,7 @@ export const VisualizationsTab: React.FC<VisualizationsTabProps> = ({
               className="btn-primary"
               style={{ marginTop: '8px', padding: '10px' }}
             >
-              {isRendering ? 'Rendering...' : 'Generate Visualization'}
+              {isRendering ? 'Rendering Visualization...' : 'Generate Visualization'}
             </button>
           </div>
         </div>

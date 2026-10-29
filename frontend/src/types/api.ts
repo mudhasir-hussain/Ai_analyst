@@ -298,6 +298,15 @@ export interface MLEvaluationMetrics {
   confusion_matrix?: MLConfusionMatrix;
 }
 
+export interface MLFeatureSpec {
+  name: string;
+  dtype: 'numeric' | 'categorical';
+  min_val?: number;
+  max_val?: number;
+  default_val: any;
+  options?: string[];
+}
+
 export interface MLTrainResponse {
   model_name: string;
   model_type: string;
@@ -311,6 +320,31 @@ export interface MLTrainResponse {
   loss_curve: MLLossEpochPoint[];
   predictions: MLPredictionPoint[];
   educational_takeaways: string[];
+  feature_specs?: MLFeatureSpec[];
+}
+
+export interface MLPredictRequest {
+  features: Record<string, any>;
+}
+
+export interface MLPredictResponse {
+  task_type: 'regression' | 'classification';
+  predicted_class?: string;
+  predicted_value?: number;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+  explanation?: string;
+}
+
+export interface AIAskRequest {
+  question: string;
+}
+
+export interface AIAskResponse {
+  answer: string;
+  key_findings: string[];
+  suggested_questions: string[];
+  provider_used: string;
 }
 
 export interface MLTrainRequest {

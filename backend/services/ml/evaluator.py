@@ -16,7 +16,8 @@ from models.schemas import (
     MLConfusionMatrix,
     MLPredictionPoint,
     MLFeatureImportance,
-    MLLossEpochPoint
+    MLLossEpochPoint,
+    MLFeatureSpec
 )
 
 
@@ -34,7 +35,8 @@ def evaluate_model_pedagogy(
     feature_count: int,
     total_samples: int,
     feature_importance: List[MLFeatureImportance],
-    loss_curve: List[MLLossEpochPoint]
+    loss_curve: List[MLLossEpochPoint],
+    feature_specs: Optional[List[MLFeatureSpec]] = None
 ) -> MLTrainResponse:
     """
     Computes regression or classification evaluation metrics, diagnoses
@@ -135,50 +137,50 @@ def evaluate_model_pedagogy(
             )
         )
 
-    # Pedagogical Takeaways based on model family and data characteristics
+    # Plain English Takeaways based on model family and data characteristics
     takeaways = [
         f"Model: {model_name} trained on Version {version_number} with {feature_count} features across {total_samples} samples."
     ]
 
     if "decision_tree" in model_type:
         takeaways.append(
-            "Decision Trees are highly vulnerable to noisy duplicate samples. An unconstrained tree splits repeatedly "
-            "until training error is zero, causing massive variance on fresh test samples."
+            "Decision Trees can easily memorize noise and duplicate rows. When a tree tries too hard to be 100% perfect on training data, "
+            "it struggles to make accurate predictions on brand-new data."
         )
     elif "random_forest" in model_type:
         takeaways.append(
-            "Random Forests mitigate overfitting through bagging (bootstrap aggregation), averaging multiple decorrelated trees "
-            "to produce smoother decision boundaries and lower variance."
+            "Random Forests prevent memorization by combining predictions from multiple diverse trees, "
+            "making overall predictions much more reliable and balanced."
         )
     elif "gradient_boosting" in model_type or "gbdt" in model_type:
         takeaways.append(
-            "Gradient Boosting constructs decision trees sequentially, with each tree correcting the residual errors "
-            "of the previous ones. Notice how the staged loss/deviance drops iteration by iteration in the Loss Curve tab."
+            "Gradient Boosting builds trees one after another, where each new tree focuses on fixing the mistakes "
+            "of the previous one to steadily improve accuracy."
         )
     elif "knn" in model_type or "k_nearest_neighbors" in model_type:
         takeaways.append(
-            "K-Nearest Neighbors is an instance-based distance learner. Without feature standardization or when extreme "
-            "outliers exist, high-magnitude dimensions dominate Euclidean distances, severely degrading neighbor queries."
+            "K-Nearest Neighbors predicts by looking at the closest matching rows. Wild outliers or unscaled columns "
+            "can distort distances, so cleaning and normalizing data helps it make fair comparisons."
         )
     elif "svm" in model_type or "svc" in model_type or "svr" in model_type:
         takeaways.append(
-            "Support Vector Machines construct optimal maximum-margin separating hyperplanes. Noise and outlier points "
-            "situated near decision boundaries can misplace the margin and destabilize classification confidence."
+            "Support Vector Machines find a clear dividing boundary between groups. Outliers right near that boundary "
+            "can pull the line off track, so cleaning boundary noise keeps predictions confident."
         )
-    elif "mlp" in model_type or "neural_network" in model_type:
+    elif "mlp" in model_type or "neural_network" in model_type or "neural_net" in model_type or "nn" in model_type:
         takeaways.append(
-            "Neural Networks rely on backpropagation and gradient descent. Unscaled features or extreme outliers cause gradients "
-            "to explode or oscillate, whereas standardized inputs produce smooth convergence across training epochs."
+            "Neural Networks learn step-by-step from patterns. When numbers are too large or have extreme outliers, "
+            "learning becomes erratic; scaling your features helps the network learn smoothly."
         )
     else:
         takeaways.append(
-            "Linear models assume additive relationships. Outliers disproportionately tilt the regression hyper-plane; "
-            "clipping or removing statistical outliers dramatically stabilizes model coefficients."
+            "Linear and logistic models draw a best-fit line through your data. A single extreme outlier can pull this line "
+            "way off course; removing or clipping outliers keeps the model balanced and trustworthy."
         )
 
     if overfitting_status in {"severe_overfitting", "moderate_overfitting"}:
         takeaways.append(
-            "💡 Data Action: Run 'Remove Duplicate Rows' and 'Handle Outliers (IQR Clip)' to observe the overfitting gap close."
+            "💡 Recommended Action: Run 'Remove Duplicate Rows' and 'Handle Outliers (IQR Clip)' to prevent the model from memorizing noisy data."
         )
 
     conf_matrix: Optional[MLConfusionMatrix] = None
@@ -218,7 +220,8 @@ def evaluate_model_pedagogy(
         feature_importance=feature_importance,
         loss_curve=loss_curve,
         predictions=predictions,
-        educational_takeaways=takeaways
+        educational_takeaways=takeaways,
+        feature_specs=feature_specs or []
     )
 
 

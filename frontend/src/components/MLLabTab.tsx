@@ -3,6 +3,7 @@ import type {
   MLTargetCandidate,
   MLTrainResponse,
   MLCompareResponse,
+  MLPredictResponse,
   DatasetVersion
 } from '../types/api';
 import { api } from '../services/api';
@@ -36,13 +37,19 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [isFeatureSelectorOpen, setIsFeatureSelectorOpen] = useState<boolean>(false);
 
+  // What-If Live Prediction Simulator State
+  const [simulatorInputs, setSimulatorInputs] = useState<Record<string, any>>({});
+  const [predictionResult, setPredictionResult] = useState<MLPredictResponse | null>(null);
+  const [isPredicting, setIsPredicting] = useState<boolean>(false);
+  const [isExportingCode, setIsExportingCode] = useState<boolean>(false);
+
   // Results State
   const [trainResult, setTrainResult] = useState<MLTrainResponse | null>(null);
   const [compareResult, setCompareResult] = useState<MLCompareResponse | null>(null);
   const [isTraining, setIsTraining] = useState<boolean>(false);
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [selectedBaseVersion, setSelectedBaseVersion] = useState<number>(1);
-  const [activeVizTab, setActiveVizTab] = useState<'loss' | 'actual_vs_pred' | 'features' | 'overfitting' | 'confusion_matrix'>('overfitting');
+  const [activeVizTab, setActiveVizTab] = useState<'loss' | 'actual_vs_pred' | 'features' | 'overfitting' | 'confusion_matrix' | 'what_if'>('overfitting');
 
   // Load target candidates when datasetId changes
   useEffect(() => {
@@ -65,11 +72,42 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
           const suitable = list.filter((c) => c.is_suitable !== false);
           const firstTarget = suitable.length > 0 ? suitable[0].column : list[0].column;
           setSelectedTarget(firstTarget);
-          // Initialize selected features to suitable columns, excluding identifiers and free-text by default
           const validCols = list
             .filter((c) => c.column !== firstTarget && c.is_suitable !== false)
             .map((c) => c.column);
-          setSelectedFeatures(validCols.length > 0 ? validCols : list.filter((c) => c.column !== firstTarget).map((c) => c.column));
+          const initialFeatures = validCols.length > 0 ? validCols : list.filter((c) => c.column !== firstTarget).map((c) => c.column);
+          setSelectedFeatures(initialFeatures);
+
+          // Auto-train default model on initial load so the dashboard is immediately interactive
+          if (initialFeatures.length > 0) {
+            setIsTraining(true);
+            api.trainMLModel(datasetId, {
+              target_column: firstTarget,
+              model_type: modelType,
+              test_size: testSize,
+              hyperparameters: { max_depth: 3 },
+              selected_features: initialFeatures,
+              version_number: activeVersionNumber
+            }).then((trainRes) => {
+              if (isMounted) {
+                setTrainResult(trainRes);
+                if (trainRes.feature_specs && trainRes.feature_specs.length > 0) {
+                  const initialInputs: Record<string, any> = {};
+                  trainRes.feature_specs.forEach((f) => {
+                    initialInputs[f.name] = f.default_val;
+                  });
+                  setSimulatorInputs(initialInputs);
+                  api.predictMLModel(datasetId, initialInputs)
+                    .then((pred) => isMounted && setPredictionResult(pred))
+                    .catch(() => {});
+                }
+              }
+            }).catch(() => {
+              // Non-blocking initial train error
+            }).finally(() => {
+              if (isMounted) setIsTraining(false);
+            });
+          }
         }
       })
       .catch((err) => {
@@ -125,7 +163,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
   };
 
   // Handler: Train Model
-  const handleTrain = async () => {
+  const handleTrain = async (overrideModelType?: string | unknown) => {
     if (!datasetId || !selectedTarget) {
       showToast('Please select a target variable first.', 'info');
       return;
@@ -141,26 +179,28 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
       return;
     }
 
+    const activeModel = typeof overrideModelType === 'string' ? overrideModelType : modelType;
+
     setIsTraining(true);
     setCompareResult(null);
     try {
       const hyperparameters: Record<string, any> = {};
-      if (modelType === 'decision_tree' || modelType === 'random_forest' || modelType === 'gradient_boosting') {
+      if (activeModel === 'decision_tree' || activeModel === 'random_forest' || activeModel === 'gradient_boosting') {
         hyperparameters.max_depth = isUnconstrainedDepth ? null : maxDepth;
       }
-      if (modelType === 'neural_net') {
+      if (activeModel === 'neural_net') {
         hyperparameters.max_iter = 120;
       }
-      if (modelType === 'knn') {
+      if (activeModel === 'knn') {
         hyperparameters.n_neighbors = knnNeighbors;
       }
-      if (modelType === 'svm') {
+      if (activeModel === 'svm') {
         hyperparameters.kernel = svmKernel;
       }
 
       const res = await api.trainMLModel(datasetId, {
         target_column: selectedTarget,
-        model_type: modelType,
+        model_type: activeModel,
         test_size: testSize,
         hyperparameters,
         selected_features: selectedFeatures,
@@ -169,6 +209,18 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
 
       setTrainResult(res);
       showToast(`Trained ${res.model_name} successfully!`, 'success');
+
+      // Initialize simulator inputs with defaults from feature_specs
+      if (res.feature_specs && res.feature_specs.length > 0) {
+        const initialInputs: Record<string, any> = {};
+        res.feature_specs.forEach((f) => {
+          initialInputs[f.name] = f.default_val;
+        });
+        setSimulatorInputs(initialInputs);
+        api.predictMLModel(datasetId, initialInputs)
+          .then((pred) => setPredictionResult(pred))
+          .catch(() => {});
+      }
 
       // Auto-switch viz tab depending on model and metrics
       if (res.metrics.confusion_matrix) {
@@ -182,6 +234,50 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
       showToast(err.message || 'Failed to train machine learning model.', 'error');
     } finally {
       setIsTraining(false);
+    }
+  };
+
+  // Handler: Run What-If Prediction
+  const handleRunPrediction = async (updatedInputs?: Record<string, any>) => {
+    if (!datasetId) return;
+    const inputsToUse = updatedInputs || simulatorInputs;
+    setIsPredicting(true);
+    try {
+      const pred = await api.predictMLModel(datasetId, inputsToUse);
+      setPredictionResult(pred);
+    } catch (err: any) {
+      showToast(err.message || 'Prediction failed.', 'error');
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
+  const handleSimulatorChange = (featName: string, val: any) => {
+    const updated = { ...simulatorInputs, [featName]: val };
+    setSimulatorInputs(updated);
+    handleRunPrediction(updated);
+  };
+
+  // Handler: Export Trained Model Code
+  const handleExportCode = async () => {
+    if (!datasetId) return;
+    setIsExportingCode(true);
+    try {
+      const res = await api.exportMLCode(datasetId);
+      const blob = new Blob([res.code], { type: 'text/x-python' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.filename || `inference_pipeline_${datasetId.slice(0, 8)}.py`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      showToast('Exported standalone Python model script!', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to export model code. Train a model first.', 'error');
+    } finally {
+      setIsExportingCode(false);
     }
   };
 
@@ -220,6 +316,10 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
       });
 
       setCompareResult(res);
+      // Synchronize trainResult so model insights card reflects this model's benchmark
+      if (res.target_version) {
+        setTrainResult(res.target_version);
+      }
       showToast('Generated cross-version ML comparison!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Comparison failed. Ensure at least two versions exist.', 'error');
@@ -342,7 +442,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={handleTrain}
+              onClick={() => handleTrain()}
               disabled={isTraining || !selectedTarget || selectedFeatures.length === 0 || currentCandidate?.is_suitable === false}
               className="btn-primary"
               style={{
@@ -451,7 +551,13 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
             </label>
             <select
               value={modelType}
-              onChange={(e) => setModelType(e.target.value)}
+              onChange={(e) => {
+                const newType = e.target.value;
+                setModelType(newType);
+                if (selectedTarget && selectedFeatures.length > 0) {
+                  handleTrain(newType);
+                }
+              }}
               className="input-select"
               style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
             >
@@ -664,7 +770,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
               border: '1px solid var(--border-subtle)'
             }}>
               <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.5 }}>
-                💡 <strong>Pedagogical Sandbox:</strong> Check or uncheck individual columns to observe how removing noisy, redundant, or leaky features directly affects test holdout generalization and closes the overfitting gap.
+                💡 <strong>Feature Impact Sandbox:</strong> Check or uncheck columns to test how removing noisy, redundant, or misleading features improves real-world model accuracy and prevents memorizing noise.
               </p>
 
               <div style={{
@@ -933,11 +1039,47 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                 >
                   Feature Importance
                 </button>
+
+                <button
+                  onClick={() => setActiveVizTab('what_if')}
+                  style={{
+                    background: activeVizTab === 'what_if' ? 'var(--brand-primary)' : 'transparent',
+                    color: activeVizTab === 'what_if' ? '#FFFFFF' : 'var(--text-secondary)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '6px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>⚡ What-If Simulator</span>
+                  <span style={{ fontSize: '0.65rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', padding: '1px 5px', borderRadius: '4px' }}>Live</span>
+                </button>
               </div>
 
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                {trainResult.total_samples} samples • {trainResult.feature_count} features active
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  onClick={handleExportCode}
+                  disabled={isExportingCode}
+                  className="btn-secondary"
+                  title="Download standalone Python inference script"
+                  style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  {isExportingCode ? 'Exporting...' : 'Export Python Code'}
+                </button>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {trainResult.total_samples} samples • {trainResult.feature_count} features active
+                </span>
+              </div>
             </div>
 
             {/* TAB: Overfitting Diagnostics Gauge */}
@@ -1274,6 +1416,230 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                 </div>
               </div>
             )}
+
+            {/* TAB: What-If Live Simulator */}
+            {activeVizTab === 'what_if' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                  <div>
+                    <h4 style={{ fontSize: '0.98rem', fontWeight: 600, color: '#FFFFFF', marginBottom: '4px' }}>
+                      Interactive What-If Live Prediction Simulator
+                    </h4>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, maxWidth: '680px' }}>
+                      Simulate real-time model inference using your trained Scikit-Learn pipeline. Tweak numeric sliders or category values below to observe how input adjustments immediately change predictions.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (trainResult.feature_specs) {
+                        const defaults: Record<string, any> = {};
+                        trainResult.feature_specs.forEach((f) => { defaults[f.name] = f.default_val; });
+                        setSimulatorInputs(defaults);
+                        handleRunPrediction(defaults);
+                      }
+                    }}
+                    className="btn-secondary"
+                    style={{ fontSize: '0.76rem', padding: '5px 12px' }}
+                  >
+                    Reset to Means / Medians
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.4fr) minmax(280px, 1fr)', gap: '24px', alignItems: 'start' }}>
+                  {/* Left: Input Controls */}
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '16px',
+                    maxHeight: '480px',
+                    overflowY: 'auto'
+                  }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>
+                      Adjust Feature Inputs ({trainResult.feature_specs?.length || 0} features)
+                    </div>
+
+                    {(!trainResult.feature_specs || trainResult.feature_specs.length === 0) ? (
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        No feature specifications available for this model.
+                      </div>
+                    ) : (
+                      trainResult.feature_specs.map((spec) => {
+                        const currentValue = simulatorInputs[spec.name] ?? spec.default_val;
+                        if (spec.dtype === 'numeric') {
+                          const min = spec.min_val ?? 0;
+                          const max = spec.max_val ?? 100;
+                          const step = (max - min > 10 ? 1 : 0.1);
+                          return (
+                            <div key={spec.name} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                  {spec.name}
+                                </label>
+                                <span style={{
+                                  fontSize: '0.82rem',
+                                  fontWeight: 600,
+                                  color: 'var(--brand-primary)',
+                                  background: 'rgba(37, 99, 235, 0.12)',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px'
+                                }}>
+                                  {typeof currentValue === 'number' ? (Number.isInteger(currentValue) ? currentValue : currentValue.toFixed(2)) : currentValue}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={min}
+                                max={max}
+                                step={step}
+                                value={currentValue}
+                                onChange={(e) => handleSimulatorChange(spec.name, parseFloat(e.target.value))}
+                                style={{ accentColor: 'var(--brand-primary)', cursor: 'pointer' }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                <span>Min: {min}</span>
+                                <span>Mean: {typeof spec.default_val === 'number' ? spec.default_val.toFixed(1) : spec.default_val}</span>
+                                <span>Max: {max}</span>
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div key={spec.name} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                  {spec.name}
+                                </label>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Categorical</span>
+                              </div>
+                              <select
+                                value={currentValue}
+                                onChange={(e) => handleSimulatorChange(spec.name, e.target.value)}
+                                className="input-select"
+                                style={{ padding: '6px 10px', fontSize: '0.82rem' }}
+                              >
+                                {(spec.options || []).map((cat: string) => (
+                                  <option key={cat} value={cat}>
+                                    {cat}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        }
+                      })
+                    )}
+                  </div>
+
+                  {/* Right: Live Prediction Output Card */}
+                  <div style={{
+                    background: 'linear-gradient(145deg, rgba(37, 99, 235, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%)',
+                    border: '1px solid rgba(37, 99, 235, 0.3)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '24px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '18px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                        Target: {selectedTarget}
+                      </span>
+                      <span style={{
+                        fontSize: '0.72rem',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10B981',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10B981', display: 'inline-block' }} />
+                        {isPredicting ? 'Inferring...' : '< 3ms In-Memory'}
+                      </span>
+                    </div>
+
+                    {predictionResult ? (
+                      <div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                          Predicted Outcome
+                        </div>
+                        <div style={{
+                          fontSize: '2.2rem',
+                          fontWeight: 800,
+                          color: (predictionResult.predicted_class === '1' || predictionResult.predicted_class === 'Yes' || predictionResult.predicted_class === 'True')
+                            ? '#F43F5E'
+                            : (predictionResult.predicted_class === '0' || predictionResult.predicted_class === 'No' || predictionResult.predicted_class === 'False')
+                            ? '#10B981'
+                            : '#60A5FA',
+                          letterSpacing: '-0.5px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px'
+                        }}>
+                          {taskType === 'regression'
+                            ? (predictionResult.predicted_value !== undefined ? predictionResult.predicted_value.toFixed(2) : 'N/A')
+                            : (predictionResult.predicted_class ?? 'N/A')}
+                        </div>
+
+                        {predictionResult.probabilities && (
+                          <div style={{ marginTop: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                              <span>Class Probabilities</span>
+                              {predictionResult.probabilities['1'] !== undefined && (
+                                <span style={{ fontWeight: 600, color: '#FFFFFF' }}>
+                                  {(predictionResult.probabilities['1'] * 100).toFixed(1)}% Positive
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ height: '10px', background: 'rgba(255,255,255,0.08)', borderRadius: '6px', overflow: 'hidden', display: 'flex' }}>
+                              {Object.entries(predictionResult.probabilities).map(([cls, prob], idx) => (
+                                <div
+                                  key={cls}
+                                  title={`Class ${cls}: ${(prob * 100).toFixed(1)}%`}
+                                  style={{
+                                    height: '100%',
+                                    width: `${prob * 100}%`,
+                                    background: idx === 0 ? '#10B981' : idx === 1 ? '#F43F5E' : '#38BDF8',
+                                    transition: 'width 0.2s ease'
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                              {Object.entries(predictionResult.probabilities).map(([cls, prob]) => (
+                                <span key={cls}>Class {cls}: {(prob * 100).toFixed(0)}%</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        Adjust inputs on the left to simulate prediction.
+                      </div>
+                    )}
+
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(0,0,0,0.2)',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-secondary)',
+                      lineHeight: 1.4
+                    }}>
+                      💡 <strong>Model Interpretability Note:</strong> Because data cleaning eliminated outlier skews and imputed missing values before training, the decision boundaries remain stable and realistic.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 4. Educational Takeaways Card */}
@@ -1286,7 +1652,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                   <line x1="12" y1="8" x2="12.01" y2="8" />
                 </svg>
                 <h4 style={{ fontSize: '0.92rem', fontWeight: 600, color: '#FFFFFF', margin: 0 }}>
-                  Pedagogical Takeaways & Data Quality Insights
+                  Key Takeaways & Model Insights
                 </h4>
               </div>
               <ul style={{ paddingLeft: '20px', margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>

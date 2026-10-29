@@ -297,4 +297,34 @@ def test_target_suitability_and_failsafes(sample_ml_dataframe):
         train_model_on_dataframe(df, target_col="customer_name", model_type="random_forest")
 
 
+def test_feature_specs_and_single_record_prediction(sample_ml_dataframe):
+    from services.ml.trainer import train_model_on_dataframe, predict_single_record, export_inference_code
+    from uuid import uuid4
+
+    test_id = str(uuid4())
+    # Train model on dataset
+    res = train_model_on_dataframe(
+        df=sample_ml_dataframe,
+        target_col="churn",
+        model_type="decision_tree",
+        dataset_id=test_id
+    )
+    assert len(res.feature_specs) > 0
+    spec_names = [f.name for f in res.feature_specs]
+    assert "revenue" in spec_names or "units_sold" in spec_names
+
+    # Test single record prediction
+    sample_inputs = {f.name: f.default_val for f in res.feature_specs}
+    pred = predict_single_record(dataset_id=test_id, input_features=sample_inputs)
+    assert pred.task_type == "classification"
+    assert pred.predicted_class is not None
+    assert pred.probabilities is not None
+
+    # Test code export
+    export_code = export_inference_code(dataset_id=test_id)
+    assert "import" in export_code
+    assert "def run_inference" in export_code
+
+
+
 

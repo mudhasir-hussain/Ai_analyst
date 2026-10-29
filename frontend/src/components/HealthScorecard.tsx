@@ -5,12 +5,16 @@ interface HealthScorecardProps {
   health: DatasetHealth | null;
   profile: DatasetProfile | null;
   onRemediateIssue?: (issue: any) => void;
+  onAutoHeal?: () => void;
+  isAutoHealing?: boolean;
 }
 
 export const HealthScorecard: React.FC<HealthScorecardProps> = ({
   health,
   profile,
-  onRemediateIssue
+  onRemediateIssue,
+  onAutoHeal,
+  isAutoHealing = false
 }) => {
   const isLoaded = Boolean(health && profile);
   const score = health?.health_score ?? 0;
@@ -158,7 +162,7 @@ export const HealthScorecard: React.FC<HealthScorecardProps> = ({
 
         return (
           <div className="glass-panel" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>
                   Detected Issues & Actionable Recommendations
@@ -167,6 +171,32 @@ export const HealthScorecard: React.FC<HealthScorecardProps> = ({
                   {isLoaded ? `Found ${health?.total_issues ?? issues.length} diagnostic check(s) requiring attention` : 'Auditing checks run automatically upon dataset load'}
                 </p>
               </div>
+
+              {onAutoHeal && isLoaded && issues.length > 0 && (
+                <button
+                  onClick={onAutoHeal}
+                  disabled={isAutoHealing}
+                  className="btn-primary"
+                  title="Applies LLM-generated cleaning operations in an automated pipeline and increments dataset version"
+                  style={{
+                    background: 'linear-gradient(135deg, #2563EB 0%, #7C3AED 100%)',
+                    border: 'none',
+                    padding: '8px 18px',
+                    fontSize: '0.84rem',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)',
+                    cursor: isAutoHealing ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                  </svg>
+                  {isAutoHealing ? 'Healing Dataset...' : '✨ 1-Click AI Auto-Heal'}
+                </button>
+              )}
             </div>
 
             {!health ? (

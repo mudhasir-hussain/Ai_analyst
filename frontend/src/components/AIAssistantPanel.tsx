@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { AIPlanResponse } from '../types/api';
+import type { AIPlanResponse, AIAskResponse } from '../types/api';
+import { api } from '../services/api';
 
 interface AIAssistantPanelProps {
   isOpen: boolean;
@@ -8,6 +9,7 @@ interface AIAssistantPanelProps {
   onApprovePlan: (planId: string) => Promise<void>;
   isGeneratingPlan: boolean;
   isExecutingPlan: boolean;
+  datasetId?: string;
 }
 
 interface ChatMessage {
@@ -15,6 +17,7 @@ interface ChatMessage {
   sender: 'user' | 'assistant';
   text: string;
   plan?: AIPlanResponse;
+  qaResponse?: AIAskResponse;
   timestamp: string;
 }
 
@@ -24,14 +27,17 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   onSubmitPrompt,
   onApprovePlan,
   isGeneratingPlan,
-  isExecutingPlan
+  isExecutingPlan,
+  datasetId
 }) => {
+  const [mode, setMode] = useState<'clean' | 'ask'>('clean');
+  const [isAskingQA, setIsAskingQA] = useState<boolean>(false);
   const [inputPrompt, setInputPrompt] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       sender: 'assistant',
-      text: "Hello! I am your AI Data Analyst. Ask me to clean data, handle missing values, resolve outliers, extract dates, or format schemas. I will formulate a safe, deterministic plan for you to review before anything is applied.",
+      text: "Hello! I am your AI Data Analyst powered by Google Gemini (with Groq cloud resilience). Switch between 'Clean & Transform' to safely prep data, or 'Talk to Data' for natural language statistical Q&A.",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -111,16 +117,25 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
   if (!isOpen) return null;
 
-  const quickPrompts = [
-    "Fill missing values in revenue with the column median",
-    "Remove duplicate rows and trim text columns",
-    "Clip statistical outliers using the 1.5x IQR method",
+  const cleanPrompts = [
+    "Fill missing values with column median",
+    "Remove duplicate rows and trim whitespace",
+    "Clip statistical outliers using 1.5x IQR",
     "Convert date column to datetime and extract year"
   ];
 
+  const askPrompts = [
+    "What factors are most strongly correlated with churn?",
+    "Summarize customer distribution by contract type",
+    "Are higher monthly charges associated with higher cancellation?",
+    "What are the top 3 anomalies or takeaways in this dataset?"
+  ];
+
+  const currentPrompts = mode === 'clean' ? cleanPrompts : askPrompts;
+
   const handleSend = async (promptToSend?: string) => {
     const text = (promptToSend || inputPrompt).trim();
-    if (!text || isGeneratingPlan) return;
+    if (!text || isGeneratingPlan || isAskingQA) return;
 
     const userMsgId = Date.now().toString();
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -130,6 +145,49 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       { id: userMsgId, sender: 'user', text, timestamp: nowTime }
     ]);
     setInputPrompt('');
+
+    if (mode === 'ask') {
+      if (!datasetId) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: 'assistant',
+            text: 'Please upload a dataset or load the sample data first to ask analytical questions.',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+        return;
+      }
+
+      setIsAskingQA(true);
+      try {
+        const qaRes = await api.askAIAboutDataset(datasetId, text);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: 'assistant',
+            text: qaRes.answer,
+            qaResponse: qaRes,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      } catch (err: any) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: 'assistant',
+            text: `Analysis error: ${err.message || 'Failed to query dataset.'}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      } finally {
+        setIsAskingQA(false);
+      }
+      return;
+    }
 
     try {
       const plan = await onSubmitPrompt(text);
@@ -189,7 +247,7 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         }}
         className="side-drawer animate-slide-in"
       >
-        {/* Antigravity IDE-Style Draggable Resizer Edge */}
+        {/* Draggable Resizer Edge */}
         <div
           onMouseDown={startResizing}
           onDoubleClick={toggleExpand}
@@ -363,6 +421,60 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         </div>
       </div>
 
+      {/* Mode Tabs: Clean & Transform vs Talk to Data */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '1px solid var(--border-subtle)',
+        background: 'rgba(15, 23, 42, 0.6)'
+      }}>
+        <button
+          onClick={() => setMode('clean')}
+          style={{
+            flex: 1,
+            padding: '10px 14px',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            background: mode === 'clean' ? 'rgba(37, 99, 235, 0.15)' : 'transparent',
+            color: mode === 'clean' ? '#60A5FA' : 'var(--text-secondary)',
+            border: 'none',
+            borderBottom: mode === 'clean' ? '2px solid var(--brand-primary)' : '2px solid transparent',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px'
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
+          </svg>
+          Clean & Transform
+        </button>
+        <button
+          onClick={() => setMode('ask')}
+          style={{
+            flex: 1,
+            padding: '10px 14px',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            background: mode === 'ask' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+            color: mode === 'ask' ? '#34D399' : 'var(--text-secondary)',
+            border: 'none',
+            borderBottom: mode === 'ask' ? '2px solid #10B981' : '2px solid transparent',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px'
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          Talk to Data (Q&A)
+        </button>
+      </div>
+
       {/* Chat Messages Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {messages.map((msg) => {
@@ -407,6 +519,16 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                     : [];
                   const planId = planObj.plan_id || planObj.id;
 
+                  // If no transformation operations were generated (e.g. conversational answer, analytical inquiry),
+                  // do not render the operations card or any robotic empty-plan disclaimer.
+                  if (operations.length === 0) {
+                    return null;
+                  }
+
+                  const filteredWarnings = warnings.filter(
+                    w => !w.toLowerCase().includes("at least one operation") && !w.toLowerCase().includes("does not involve a data transformation")
+                  );
+
                   return (
                     <div style={{
                       marginTop: '12px',
@@ -445,9 +567,9 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                         </p>
                       )}
 
-                      {warnings.length > 0 && (
+                      {filteredWarnings.length > 0 && (
                         <div style={{ marginTop: '8px', fontSize: '0.78rem', color: '#FBBF24' }}>
-                          ⚠️ {warnings.join(', ')}
+                          ⚠️ {filteredWarnings.join(', ')}
                         </div>
                       )}
 
@@ -466,6 +588,74 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
                     </div>
                   );
                 })()}
+
+                {/* Q&A Analytical Findings Card */}
+                {msg.qaResponse && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '14px',
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#34D399', textTransform: 'uppercase' }}>
+                        Statistical Findings
+                      </span>
+                      <span style={{
+                        fontSize: '0.68rem',
+                        color: msg.qaResponse.provider_used === 'gemini' ? '#60A5FA' : msg.qaResponse.provider_used === 'groq-failsafe' ? '#F59E0B' : '#94A3B8',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        padding: '2px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        Provider: {msg.qaResponse.provider_used}
+                      </span>
+                    </div>
+
+                    {msg.qaResponse.key_findings && msg.qaResponse.key_findings.length > 0 && (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0', fontSize: '0.82rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {msg.qaResponse.key_findings.map((finding, fIdx) => (
+                          <li key={fIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
+                            <span style={{ color: '#10B981', fontWeight: 700 }}>✓</span>
+                            <span style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>{finding}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {msg.qaResponse.suggested_questions && msg.qaResponse.suggested_questions.length > 0 && (
+                      <div style={{ marginTop: '10px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+                          Suggested Follow-Ups:
+                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {msg.qaResponse.suggested_questions.map((question: string, qIdx: number) => (
+                            <button
+                              key={qIdx}
+                              onClick={() => handleSend(question)}
+                              style={{
+                                textAlign: 'left',
+                                background: 'rgba(16, 185, 129, 0.08)',
+                                border: '1px solid rgba(16, 185, 129, 0.25)',
+                                borderRadius: 'var(--radius-sm)',
+                                padding: '5px 8px',
+                                color: '#6EE7B7',
+                                fontSize: '0.76rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)')}
+                            >
+                              💬 {question}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', padding: '0 4px' }}>
                 {msg.timestamp}
@@ -474,13 +664,24 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           );
         })}
 
-        {isGeneratingPlan && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontSize: '0.85rem' }}>
-            <svg className="animate-pulse-subtle" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        {(isGeneratingPlan || isAskingQA) && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: 'var(--text-muted)',
+            fontSize: '0.82rem',
+            padding: '8px 12px',
+            background: 'rgba(255, 255, 255, 0.02)',
+            borderRadius: 'var(--radius-sm)'
+          }}>
+            <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"></circle>
               <polyline points="12 6 12 12 16 14"></polyline>
             </svg>
-            Analyzing schema & planning safe transformations...
+            {isAskingQA
+              ? 'Querying Gemini (Groq failsafe active) & analyzing data distributions...'
+              : 'Analyzing schema & planning safe transformations...'}
           </div>
         )}
       </div>
@@ -488,10 +689,10 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
       {/* Suggested Quick Prompts */}
       <div style={{ padding: '0 20px 12px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-          Suggested Operations
+          {mode === 'clean' ? 'Suggested Clean Operations' : 'Suggested Analytical Questions'}
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {quickPrompts.slice(0, 2).map((qp, idx) => (
+          {currentPrompts.slice(0, 2).map((qp, idx) => (
             <button
               key={idx}
               onClick={() => handleSend(qp)}
@@ -530,10 +731,10 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         >
           <input
             type="text"
-            placeholder="Ask AI to clean, fill, or transform data..."
+            placeholder={mode === 'clean' ? "Ask AI to clean, fill, or transform data..." : "Ask statistical or business questions about this dataset..."}
             value={inputPrompt}
             onChange={(e) => setInputPrompt(e.target.value)}
-            disabled={isGeneratingPlan}
+            disabled={isGeneratingPlan || isAskingQA}
             style={{
               flex: 1,
               padding: '10px 14px',
@@ -548,7 +749,7 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
           <button
             type="submit"
             className="btn-primary"
-            disabled={!inputPrompt.trim() || isGeneratingPlan}
+            disabled={!inputPrompt.trim() || isGeneratingPlan || isAskingQA}
             style={{ padding: '10px 16px' }}
           >
             Send

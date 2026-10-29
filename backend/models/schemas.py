@@ -406,6 +406,15 @@ class MLEvaluationMetrics(BaseModel):
     confusion_matrix: Optional[MLConfusionMatrix] = Field(None, description="Confusion matrix for classification tasks.")
 
 
+class MLFeatureSpec(BaseModel):
+    name: str = Field(..., description="Feature column name.")
+    dtype: str = Field(..., description="'numeric' or 'categorical'.")
+    min_val: Optional[float] = Field(None, description="Minimum numeric value observed.")
+    max_val: Optional[float] = Field(None, description="Maximum numeric value observed.")
+    default_val: Any = Field(None, description="Median or dominant category default.")
+    options: Optional[List[str]] = Field(None, description="Categorical options.")
+
+
 class MLTrainResponse(BaseModel):
     model_name: str = Field(..., description="Display title of the model.")
     model_type: str = Field(..., description="Internal model key.")
@@ -419,6 +428,31 @@ class MLTrainResponse(BaseModel):
     loss_curve: List[MLLossEpochPoint] = Field(default_factory=list)
     predictions: List[MLPredictionPoint] = Field(default_factory=list)
     educational_takeaways: List[str] = Field(default_factory=list)
+    feature_specs: List[MLFeatureSpec] = Field(default_factory=list)
+
+
+class MLPredictRequest(BaseModel):
+    features: Dict[str, Any] = Field(..., description="Key-value mapping of feature column names to input values.")
+
+
+class MLPredictResponse(BaseModel):
+    task_type: str = Field(..., description="'regression' or 'classification'.")
+    predicted_class: Optional[str] = Field(None, description="Predicted class category if classification.")
+    predicted_value: Optional[float] = Field(None, description="Predicted numerical value if regression.")
+    confidence: Optional[float] = Field(None, description="Confidence percentage (0-100) or highest probability.")
+    probabilities: Optional[Dict[str, float]] = Field(None, description="Per-class predicted probability breakdown.")
+    explanation: Optional[str] = Field(None, description="Plain English description of prediction outcome.")
+
+
+class AIAskRequest(BaseModel):
+    question: str = Field(..., description="Analytical user inquiry regarding the dataset.")
+
+
+class AIAskResponse(BaseModel):
+    answer: str = Field(..., description="Executive narrative answer.")
+    key_findings: List[str] = Field(default_factory=list, description="Bulleted takeaway insights.")
+    suggested_questions: List[str] = Field(default_factory=list, description="Follow-up questions the user might ask.")
+    provider_used: str = Field(..., description="Which AI provider answered (Gemini, Groq, or Rule-Based).")
 
 
 class MLCompareRequest(BaseModel):

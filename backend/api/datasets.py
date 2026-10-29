@@ -23,6 +23,8 @@ from models.schemas import (
     TransformImpactSummary,
     AIPlanCreate,
     AIPlanResponse,
+    AIAskRequest,
+    AIAskResponse,
     DatasetStatisticsResponse,
     ChartRecommendation,
     VisualizationRequest,
@@ -46,7 +48,14 @@ from services.datasets import (
     cache_dev_dataframe
 )
 from services.transformations import execute_transformations
-from services.ai import generate_ai_plan, approve_and_execute_plan
+from services.ai import (
+    generate_ai_plan,
+    approve_and_execute_plan,
+    get_llm_provider,
+    extract_and_parse_json,
+    build_dataset_context,
+    _DEV_AI_PLANS_CACHE
+)
 from services.analysis import (
     calculate_dataset_statistics,
     generate_chart_recommendations,
@@ -626,7 +635,15 @@ def create_ai_plan_for_dataset(
     health_data = None
 
     if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
-        source_version_id = uuid.uuid4()
+        from services.history.service import _ensure_dev_base_version, _DEV_VERSIONS_REGISTRY
+        _ensure_dev_base_version(dataset_id)
+        existing_versions = _DEV_VERSIONS_REGISTRY.get(str(dataset_id), [])
+        if existing_versions:
+            last_version = existing_versions[-1]
+            source_version_id = UUID4(str(last_version["id"]))
+            profile_data = last_version.get("profile_json")
+        else:
+            source_version_id = uuid.uuid4()
         df = load_version_dataframe("mock_bucket/sample.csv", str(dataset_id))
     else:
         res = supabase.table("datasets").select("*").eq("id", str(dataset_id)).execute()
@@ -668,6 +685,180 @@ def approve_ai_plan_for_dataset(
     )
 
 
+@router.post("/{dataset_id}/ai/auto-heal", response_model=TransformResponse)
+def auto_heal_dataset(
+    dataset_id: UUID4,
+    current_user = Depends(get_current_user)
+):
+    """
+    1-Click AI Auto-Heal: Diagnoses all active data health issues and formulates
+    an optimal composite cleaning pipeline to remediate quality defects.
+    Immediately applies the remediation, bumps the dataset version, and returns
+    the resulting transformed version with updated health profile.
+    """
+    logger.info(f"User {current_user.id} requested 1-Click AI Auto-Heal for dataset {dataset_id}")
+    str_dataset_id = str(dataset_id)
+    if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
+        from services.history.service import _ensure_dev_base_version, _DEV_VERSIONS_REGISTRY
+        _ensure_dev_base_version(dataset_id)
+        existing_versions = _DEV_VERSIONS_REGISTRY.get(str_dataset_id, [])
+        if existing_versions:
+            source_version_id = existing_versions[-1]["id"]
+        else:
+            source_version_id = uuid.uuid4()
+        df = load_version_dataframe("mock_bucket/sample.csv", str_dataset_id)
+    else:
+        res = supabase.table("datasets").select("*").eq("id", str_dataset_id).execute()
+        if not res.data:
+            raise ResourceNotFoundError(f"Dataset '{dataset_id}' not found.", "DATASET_NOT_FOUND")
+        source_version_id = res.data[0].get("active_version_id")
+        if not source_version_id:
+            raise ResourceNotFoundError(f"Dataset '{dataset_id}' has no active version snapshot.", "NO_ACTIVE_VERSION")
+        v_res = supabase.table("dataset_versions").select("*").eq("id", str(source_version_id)).execute()
+        if not v_res.data:
+            raise ResourceNotFoundError(f"Active version snapshot not found for dataset '{dataset_id}'.", "VERSION_NOT_FOUND")
+        df = load_version_dataframe(v_res.data[0].get("storage_path", ""), str_dataset_id)
+
+    operations = []
+    # 1. Duplicates
+    if int(df.duplicated().sum()) > 0:
+        operations.append({"type": "remove_duplicates"})
+
+    # 2. Impute nulls & 3. Clip outliers
+    for col in df.columns:
+        null_count = int(df[col].isna().sum())
+        if pd.api.types.is_numeric_dtype(df[col]):
+            if null_count > 0:
+                operations.append({"type": "fill_missing", "column": col, "strategy": "median"})
+            series_clean = df[col].dropna()
+            if len(series_clean) > 4:
+                q25, q75 = float(series_clean.quantile(0.25)), float(series_clean.quantile(0.75))
+                iqr = q75 - q25
+                if iqr > 0:
+                    lower_bound = q25 - (1.5 * iqr)
+                    upper_bound = q75 + (1.5 * iqr)
+                    outliers_count = int(((series_clean < lower_bound) | (series_clean > upper_bound)).sum())
+                    if outliers_count > 0:
+                        operations.append({
+                            "type": "handle_outliers",
+                            "column": col,
+                            "method": "iqr",
+                            "action": "clip",
+                            "factor": 1.5
+                        })
+        else:
+            if null_count > 0:
+                operations.append({"type": "fill_missing", "column": col, "strategy": "mode"})
+            operations.append({"type": "trim_text", "column": col})
+
+    if not operations:
+        operations.append({"type": "remove_duplicates"})
+
+    plan_id = uuid.uuid4()
+    plan_dict = {
+        "summary": "AI Auto-Heal: Comprehensive 100% Data Quality Remediation Pipeline",
+        "operations": operations,
+        "warnings": ["Auto-Heal applied median imputation, IQR outlier clipping, and string trimming."],
+        "requires_confirmation": False
+    }
+
+    plan_record = {
+        "id": str(plan_id),
+        "dataset_id": str(dataset_id),
+        "version_id": str(source_version_id),
+        "requested_by": str(current_user.id),
+        "user_prompt": "Auto-heal and optimize dataset hygiene to 100%",
+        "provider": "AIAutoHealEngine",
+        "model": "auto-heal-pipeline",
+        "plan_json": plan_dict,
+        "validation_status": "validated",
+        "warnings_json": plan_dict["warnings"],
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    _DEV_AI_PLANS_CACHE[str(plan_id)] = plan_record
+
+    return approve_and_execute_plan(
+        dataset_id=dataset_id,
+        plan_id=plan_id,
+        current_user_id=current_user.id
+    )
+
+
+@router.post("/{dataset_id}/ai/ask", response_model=AIAskResponse)
+def ask_ai_about_dataset(
+    dataset_id: UUID4,
+    payload: AIAskRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    'Talk to Your Data': Answers analytical business questions about trends,
+    patterns, and risk drivers using the resilient Gemini + Groq cloud pipeline.
+    """
+    logger.info(f"User {current_user.id} asked AI: '{payload.question}' on dataset {dataset_id}")
+    str_dataset_id = str(dataset_id)
+    if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
+        df = load_version_dataframe("mock_bucket/sample.csv", str_dataset_id)
+    else:
+        res = supabase.table("datasets").select("*").eq("id", str_dataset_id).execute()
+        if not res.data:
+            raise ResourceNotFoundError(f"Dataset '{dataset_id}' not found.", "DATASET_NOT_FOUND")
+        source_version_id = res.data[0].get("active_version_id")
+        v_res = supabase.table("dataset_versions").select("*").eq("id", str(source_version_id)).execute()
+        df = load_version_dataframe(v_res.data[0].get("storage_path", ""), str_dataset_id)
+
+    dataset_context = build_dataset_context(df)
+    system_prompt = """You are the AI Data Analyst Assistant.
+Your core mission is to answer user questions strictly about:
+1. The uploaded dataset's metrics, columns, rows, correlations, and trends.
+2. Recommended data cleaning and transformation steps (deduplication, imputation, outliers).
+3. Machine learning concepts and performance comparisons on this platform.
+4. Using the platform's features (upload, profile, clean, compare, reports).
+
+STRICT BOUNDARY & GUARDRAILS:
+- If the user asks anything unrelated to data analysis, data cleaning, machine learning, or this platform (e.g. general trivia, celebrities, movies, recipes, history, gaming, non-data coding, creative writing, politics, or absurd queries), you MUST politely decline:
+  "I am your specialized AI Data Analyst. I can only assist with dataset analysis, data cleaning, and machine learning workflows on this platform. Please ask a question related to your data or our tools!"
+- STRICT WORD LIMIT: Keep your answer concise (under 100 words total). Deliver crisp, direct, high-value insights. Do NOT write long essays. Save tokens.
+- Plain English: Avoid academic jargon (no 'pedagogical', 'regression hyper-plane', etc.). Use friendly, accessible language.
+
+Output MUST be ONLY a single valid JSON object adhering strictly to this schema:
+{
+  "answer": "Concise plain-English answer (under 100 words). If off-topic, provide the polite refusal.",
+  "key_findings": [
+    "Key takeaway 1 with specific figures or column metrics (if applicable)",
+    "Key takeaway 2 (if applicable)"
+  ],
+  "suggested_questions": [
+    "Relevant follow-up analytical question 1?",
+    "Relevant follow-up analytical question 2?"
+  ]
+}"""
+    user_prompt = f"{dataset_context}\n\nUSER QUESTION:\n{payload.question}\n\nFormulate your concise executive answer in the specified JSON format."
+
+    provider = get_llm_provider()
+    raw_response = provider.generate(system_prompt=system_prompt, user_prompt=user_prompt)
+    provider_name = getattr(provider, "last_provider_used", None) or type(provider).__name__
+
+    try:
+        parsed = extract_and_parse_json(raw_response)
+        findings = [str(f) for f in parsed.get("key_findings", [])]
+        if provider_name == "rule-based-fallback":
+            findings.append("Tip: Add GEMINI_API_KEY in backend/.env for live cloud-accelerated Gemini AI.")
+        return AIAskResponse(
+            answer=parsed.get("answer", "Analysis completed based on dataset statistics."),
+            key_findings=findings,
+            suggested_questions=[str(q) for q in parsed.get("suggested_questions", [])],
+            provider_used=provider_name
+        )
+    except Exception as e:
+        logger.warning(f"Could not parse AI response as JSON: {e}. Returning formatted text.")
+        return AIAskResponse(
+            answer=raw_response[:800],
+            key_findings=["Direct analysis generated from dataset distributions."],
+            suggested_questions=["What is the distribution of key metrics?", "Which segment has the highest variance?"],
+            provider_used=provider_name
+        )
+
+
 @router.get("/{dataset_id}/statistics", response_model=DatasetStatisticsResponse)
 async def get_dataset_statistics(
     dataset_id: UUID4,
@@ -676,7 +867,10 @@ async def get_dataset_statistics(
     logger.info(f"User {current_user.id} requested statistics for dataset {dataset_id}")
 
     if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
-        source_version_id = uuid.uuid4()
+        from services.history.service import _ensure_dev_base_version, _DEV_VERSIONS_REGISTRY
+        _ensure_dev_base_version(dataset_id)
+        existing_versions = _DEV_VERSIONS_REGISTRY.get(str(dataset_id), [])
+        source_version_id = UUID4(str(existing_versions[-1]["id"])) if existing_versions else uuid.uuid4()
         df = load_version_dataframe("mock_bucket/sample.csv", str(dataset_id))
     else:
         res = supabase.table("datasets").select("*").eq("id", str(dataset_id)).execute()
@@ -717,7 +911,10 @@ async def get_or_build_visualizations(
     logger.info(f"User {current_user.id} requested visualizations for dataset {dataset_id}")
 
     if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
-        source_version_id = uuid.uuid4()
+        from services.history.service import _ensure_dev_base_version, _DEV_VERSIONS_REGISTRY
+        _ensure_dev_base_version(dataset_id)
+        existing_versions = _DEV_VERSIONS_REGISTRY.get(str(dataset_id), [])
+        source_version_id = UUID4(str(existing_versions[-1]["id"])) if existing_versions else uuid.uuid4()
         df = load_version_dataframe("mock_bucket/sample.csv", str(dataset_id))
     else:
         res = supabase.table("datasets").select("*").eq("id", str(dataset_id)).execute()
@@ -780,7 +977,17 @@ def create_dataset_report(
     active_version_number = 1
 
     if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
-        source_version_id = uuid.uuid4()
+        from services.history.service import _ensure_dev_base_version, _DEV_VERSIONS_REGISTRY
+        _ensure_dev_base_version(dataset_id)
+        existing_versions = _DEV_VERSIONS_REGISTRY.get(str(dataset_id), [])
+        if existing_versions:
+            last_version = existing_versions[-1]
+            source_version_id = UUID4(str(last_version["id"]))
+            active_version_number = int(last_version.get("version_number", 1))
+            profile_data = last_version.get("profile_json")
+        else:
+            source_version_id = uuid.uuid4()
+            active_version_number = 1
         df = load_version_dataframe("mock_bucket/sample.csv", str(dataset_id))
     else:
         res = supabase.table("datasets").select("*").eq("id", str(dataset_id)).execute()

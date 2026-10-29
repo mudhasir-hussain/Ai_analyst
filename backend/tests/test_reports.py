@@ -232,6 +232,41 @@ def test_api_export_xlsx_endpoint(sales_report_df):
     assert len(res.content) > 100
 
 
+def test_api_create_report_matches_active_version_number(sales_report_df):
+    from services.history.service import register_dev_version
+    dataset_id = str(uuid.uuid4())
+    cache_dev_dataframe(dataset_id, sales_report_df)
+
+    # Register version 1 and version 2
+    register_dev_version(dataset_id, {
+        "id": str(uuid.uuid4()),
+        "dataset_id": dataset_id,
+        "version_number": 1,
+        "row_count": len(sales_report_df),
+        "column_count": len(sales_report_df.columns),
+        "created_at": "2026-01-01T00:00:00Z"
+    })
+    v2_id = str(uuid.uuid4())
+    register_dev_version(dataset_id, {
+        "id": v2_id,
+        "dataset_id": dataset_id,
+        "version_number": 2,
+        "row_count": len(sales_report_df),
+        "column_count": len(sales_report_df.columns),
+        "created_at": "2026-01-02T00:00:00Z"
+    })
+
+    res = client.post(
+        f"/datasets/{dataset_id}/reports",
+        headers=MOCK_AUTH_HEADER,
+        json={"format": "markdown"}
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["version_number"] == 2
+    assert "v2" in data["title"] or "Version: v2" in data["content"]
+
+
 # ==============================================================================
 # FILE SUMMARY: backend/tests/test_reports.py
 # ==============================================================================

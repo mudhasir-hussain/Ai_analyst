@@ -257,6 +257,59 @@ def test_mock_llm_provider_fallback_warning():
     assert any("fallback" in w.lower() for w in data.get("warnings", []))
 
 
+def test_resilient_provider_fallback_sequence():
+    from services.ai.provider import ResilientLLMProvider, MockLLMProvider
+
+    class FailingProvider:
+        def generate(self, sys, prompt):
+            raise RuntimeError("Primary API network timeout or 503 Service Unavailable")
+
+    class SecondaryProvider:
+        def generate(self, sys, prompt):
+            return '{"operations": [{"type": "remove_duplicates"}], "summary": "Groq Failsafe Success"}'
+
+    # When primary fails, should seamlessly fall back to secondary (Groq / Mock)
+    resilient = ResilientLLMProvider(
+        primary=FailingProvider(),
+        secondary=SecondaryProvider(),
+        fallback=MockLLMProvider()
+    )
+
+    result_text = resilient.generate("system", "remove duplicates")
+    parsed = extract_and_parse_json(result_text)
+    assert "operations" in parsed
+    assert parsed["summary"] == "Groq Failsafe Success"
+
+    # When both primary and secondary fail, falls back to deterministic local rule engine
+    resilient_fallback = ResilientLLMProvider(
+        primary=FailingProvider(),
+        secondary=FailingProvider(),
+        fallback=MockLLMProvider()
+    )
+    fallback_text = resilient_fallback.generate("system", "fill missing values in revenue with median")
+    parsed_fallback = extract_and_parse_json(fallback_text)
+    assert "operations" in parsed_fallback
+
+
+def test_api_auto_heal_dataset(sample_sales_df):
+    dataset_id = str(uuid.uuid4())
+    cache_dev_dataframe(dataset_id, sample_sales_df)
+
+    res = client.post(
+        f"/datasets/{dataset_id}/ai/auto-heal",
+        headers=MOCK_AUTH_HEADER
+    )
+    assert res.status_code == 200, f"Auto heal failed: {res.text}"
+    data = res.json()
+    assert data["dataset_id"] == dataset_id
+    assert "version_number" in data
+    assert "impact" in data
+    assert "new_version" in data
+    assert data["operation"]["source"] == "ai"
+    assert "Auto-Heal" in data["operation"]["summary"]
+
+
+
 # ==============================================================================
 # FILE SUMMARY: backend/tests/test_ai_planner.py
 # ==============================================================================

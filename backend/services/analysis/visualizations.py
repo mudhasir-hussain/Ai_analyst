@@ -192,11 +192,23 @@ def build_visualization_data(
             top_slice = val_counts.head(limit)
             for k, count in top_slice.items():
                 pct = round((count / total_count) * 100, 1) if total_count > 0 else 0
-                chart_data.append({x_column: str(k), "count": int(count), "percentage": pct})
+                chart_data.append({
+                    x_column: str(k),
+                    "name": str(k),
+                    "count": int(count),
+                    "value": int(count),
+                    "percentage": pct
+                })
 
             if len(val_counts) > limit:
                 other_count = int(val_counts.iloc[limit:].sum())
-                chart_data.append({x_column: "Other", "count": other_count, "percentage": round((other_count / total_count) * 100, 1)})
+                chart_data.append({
+                    x_column: "Other",
+                    "name": "Other",
+                    "count": other_count,
+                    "value": other_count,
+                    "percentage": round((other_count / total_count) * 100, 1)
+                })
                 warnings.append(f"High cardinality: {len(val_counts) - limit} categories grouped into 'Other'.")
 
             if chart_data:
@@ -205,15 +217,17 @@ def build_visualization_data(
 
         # Case B: Categorical vs Numeric aggregated
         else:
-            if not pd.api.types.is_numeric_dtype(df[y_column]):
-                raise DatasetValidationError(f"Column '{y_column}' must be numeric for aggregation.", "INVALID_COLUMN_TYPE")
+            numeric_y = pd.to_numeric(df[y_column], errors="coerce")
+            if numeric_y.dropna().empty:
+                raise DatasetValidationError(f"Column '{y_column}' must contain numeric data for aggregation.", "INVALID_COLUMN_TYPE")
 
             title = f"{aggregation.title()} of {y_column.replace('_', ' ').title()} by {x_column.replace('_', ' ').title()}"
             agg_method = aggregation.lower()
             valid_aggs = {"sum": "sum", "mean": "mean", "min": "min", "max": "max", "median": "median"}
             agg_func = valid_aggs.get(agg_method, "sum")
 
-            grouped = df.groupby(x_column)[y_column].agg(agg_func).reset_index()
+            temp_df = pd.DataFrame({x_column: df[x_column], y_column: numeric_y}).dropna()
+            grouped = temp_df.groupby(x_column)[y_column].agg(agg_func).reset_index()
             grouped = grouped.sort_values(by=y_column, ascending=False)
 
             top_slice = grouped.head(limit)
@@ -223,13 +237,19 @@ def build_visualization_data(
                 val = safe_float(row[y_column])
                 chart_data.append({
                     x_column: str(row[x_column]),
+                    "name": str(row[x_column]),
                     y_column: val,
                     "value": val
                 })
 
             if len(grouped) > limit:
                 remaining_val = safe_float(grouped.iloc[limit:][y_column].agg(agg_func))
-                chart_data.append({x_column: "Other", y_column: remaining_val, "value": remaining_val})
+                chart_data.append({
+                    x_column: "Other",
+                    "name": "Other",
+                    y_column: remaining_val,
+                    "value": remaining_val
+                })
                 warnings.append(f"High cardinality: {len(grouped) - limit} groups combined into 'Other'.")
 
             if chart_data and total_sum and total_sum > 0:
@@ -251,7 +271,9 @@ def build_visualization_data(
 
         title = f"{y_column.replace('_', ' ').title()} over {x_column.replace('_', ' ').title()}"
 
-        clean_df = df[[x_column, y_column]].dropna().copy()
+        numeric_y = pd.to_numeric(df[y_column], errors="coerce")
+        clean_df = pd.DataFrame({x_column: df[x_column], y_column: numeric_y}).dropna().copy()
+
         # Sort by x_column
         try:
             clean_df[x_column] = pd.to_datetime(clean_df[x_column], errors="ignore")
@@ -260,7 +282,6 @@ def build_visualization_data(
         clean_df = clean_df.sort_values(by=x_column)
 
         if len(clean_df) > limit * 3:
-            # Resample or step-down to avoid sending tens of thousands of points
             step = max(1, len(clean_df) // 100)
             sample_df = clean_df.iloc[::step]
             warnings.append(f"Dataset downsampled from {len(clean_df)} to {len(sample_df)} points for smooth rendering.")
@@ -268,14 +289,17 @@ def build_visualization_data(
             sample_df = clean_df
 
         for _, row in sample_df.iterrows():
+            val = safe_float(row[y_column])
             chart_data.append({
                 x_column: str(row[x_column]),
-                y_column: safe_float(row[y_column])
+                "name": str(row[x_column]),
+                y_column: val,
+                "value": val
             })
 
         if len(chart_data) > 1:
-            first_val = chart_data[0][y_column]
-            last_val = chart_data[-1][y_column]
+            first_val = chart_data[0]["value"]
+            last_val = chart_data[-1]["value"]
             if first_val and last_val and first_val != 0:
                 pct_change = round(((last_val - first_val) / abs(first_val)) * 100, 1)
                 direction = "increased" if pct_change > 0 else "decreased"
@@ -286,34 +310,57 @@ def build_visualization_data(
     # ==========================
     elif chart_type == "scatter":
         numeric_cols = list(df.select_dtypes(include=[np.number]).columns)
-        if len(numeric_cols) < 2:
-            raise DatasetValidationError("Scatter plot requires at least 2 numeric columns.", "INSUFFICIENT_NUMERIC_COLUMNS")
+        if len(numeric_cols) < 1:
+            raise DatasetValidationError("Scatter plot requires numeric columns.", "INSUFFICIENT_NUMERIC_COLUMNS")
 
         x_col = x_column or numeric_cols[0]
-        y_col = y_column or numeric_cols[1]
+        y_col = y_column or (numeric_cols[1] if len(numeric_cols) > 1 else numeric_cols[0])
+
+        x_series = pd.to_numeric(df[x_col], errors="coerce")
+        y_series = pd.to_numeric(df[y_col], errors="coerce")
+
+        # If user picked a non-numeric column, fallback gracefully to valid numeric columns
+        if x_series.dropna().empty:
+            x_col = numeric_cols[0]
+            x_series = pd.to_numeric(df[x_col], errors="coerce")
+            warnings.append(f"X-axis fallback: selected column '{x_column}' was non-numeric, defaulted to '{x_col}'.")
+
+        if y_series.dropna().empty:
+            y_col = numeric_cols[1] if len(numeric_cols) > 1 else numeric_cols[0]
+            y_series = pd.to_numeric(df[y_col], errors="coerce")
+            warnings.append(f"Y-axis fallback: selected column '{y_column}' was non-numeric, defaulted to '{y_col}'.")
+
         title = f"{x_col.replace('_', ' ').title()} vs {y_col.replace('_', ' ').title()}"
 
-        clean_df = df[[x_col, y_col]].dropna()
+        clean_df = pd.DataFrame({x_col: x_series, y_col: y_series}).dropna()
         if len(clean_df) > 500:
             clean_df = clean_df.sample(n=500, random_state=42)
             warnings.append(f"Sampled 500 points from {len(df)} total rows to preserve chart responsiveness.")
 
         for _, row in clean_df.iterrows():
+            xv = safe_float(row[x_col])
+            yv = safe_float(row[y_col])
             chart_data.append({
-                x_col: safe_float(row[x_col]),
-                y_col: safe_float(row[y_col])
+                x_col: xv,
+                y_col: yv,
+                "x": xv,
+                "y": yv
             })
 
-        corr = safe_float(clean_df[x_col].corr(clean_df[y_col]))
-        if corr is not None:
-            insights.append(f"Pearson correlation coefficient between {x_col} and {y_col} is {corr}.")
+        if len(clean_df) > 1 and clean_df[x_col].std() > 0 and clean_df[y_col].std() > 0:
+            corr = safe_float(clean_df[x_col].corr(clean_df[y_col]))
+            if corr is not None:
+                insights.append(f"Pearson correlation coefficient between {x_col} and {y_col} is {corr}.")
+
+        x_column = x_col
+        y_column = y_col
 
     # ==========================
     # 4. HISTOGRAM
     # ==========================
     elif chart_type == "histogram":
         col = x_column or y_column
-        if not col:
+        if not col or pd.to_numeric(df[col], errors="coerce").dropna().empty:
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             if len(numeric_cols) == 0:
                 raise DatasetValidationError("Histogram requires a numeric column.", "NO_NUMERIC_COLUMNS")
@@ -334,20 +381,24 @@ def build_visualization_data(
                 "bin_start": b_start,
                 "bin_end": b_end,
                 "bin_label": f"{b_start} - {b_end}",
-                "count": int(counts[i])
+                "name": f"{b_start} - {b_end}",
+                "bin": f"{b_start} - {b_end}",
+                "count": int(counts[i]),
+                "value": int(counts[i])
             })
 
         max_bin_idx = int(np.argmax(counts))
         modal_range = f"{safe_float(bin_edges[max_bin_idx])} to {safe_float(bin_edges[max_bin_idx + 1])}"
         modal_pct = round((counts[max_bin_idx] / len(series)) * 100, 1)
         insights.append(f"The highest density bin is {modal_range}, containing {counts[max_bin_idx]} observations ({modal_pct}% of records).")
+        x_column = col
 
     # ==========================
     # 5. BOX PLOT
     # ==========================
     elif chart_type == "box":
         col = y_column or x_column
-        if not col:
+        if not col or pd.to_numeric(df[col], errors="coerce").dropna().empty:
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             col = numeric_cols[0] if len(numeric_cols) > 0 else df.columns[0]
 
@@ -366,19 +417,23 @@ def build_visualization_data(
         chart_data.append({
             "column": col,
             "min": safe_float(series.min()),
+            "q1": q25,
             "q25": q25,
             "median": median,
+            "q3": q75,
             "q75": q75,
             "max": safe_float(series.max()),
             "iqr": safe_float(iqr),
             "outliers_count": len(outliers),
-            "sample_outliers": [safe_float(o) for o in outliers[:10]]
+            "outliers": [safe_float(o) for o in outliers[:25]],
+            "sample_outliers": [safe_float(o) for o in outliers[:25]]
         })
 
         if len(outliers) > 0:
             insights.append(f"Detected {len(outliers)} statistical outliers outside 1.5x IQR boundaries.")
         else:
             insights.append("No statistical outliers detected beyond 1.5x IQR boundaries.")
+        y_column = col
 
     # ==========================
     # 6. HEATMAP (Correlations)
@@ -393,7 +448,8 @@ def build_visualization_data(
                 chart_data.append({
                     "x": col_x,
                     "y": col_y,
-                    "correlation": r_val
+                    "correlation": r_val,
+                    "value": r_val
                 })
 
         sig_pairs = corr_res.get("significant_pairs", [])

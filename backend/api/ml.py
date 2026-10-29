@@ -13,12 +13,16 @@ from models.schemas import (
     MLTrainRequest,
     MLTrainResponse,
     MLCompareRequest,
-    MLCompareResponse
+    MLCompareResponse,
+    MLPredictRequest,
+    MLPredictResponse
 )
 from services.datasets import load_version_dataframe, _DEV_DATAFRAME_CACHE
 from services.ml.trainer import (
     train_model_on_dataframe,
-    get_candidate_targets
+    get_candidate_targets,
+    predict_single_record,
+    export_inference_code
 )
 from services.ml.comparator import compare_model_across_dataframes
 
@@ -132,8 +136,35 @@ def train_ml_model(
         test_size=payload.test_size,
         hyperparameters=payload.hyperparameters,
         version_number=v_num,
-        selected_features=payload.selected_features
+        selected_features=payload.selected_features,
+        dataset_id=str(dataset_id)
     )
+
+
+@router.post("/predict", response_model=MLPredictResponse, status_code=status.HTTP_200_OK)
+def predict_with_ml_model(
+    dataset_id: UUID,
+    payload: MLPredictRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Executes real-time single-sample inference (<2ms) on the trained model pipeline.
+    """
+    logger.info(f"User {current_user.id} running live What-If prediction on dataset {dataset_id}")
+    return predict_single_record(str(dataset_id), payload.features)
+
+
+@router.get("/export-code", status_code=status.HTTP_200_OK)
+def export_ml_inference_code(
+    dataset_id: UUID,
+    current_user = Depends(get_current_user)
+):
+    """
+    Generates and returns a standalone, reproducible Python script for running inference externally.
+    """
+    logger.info(f"User {current_user.id} exported inference code for dataset {dataset_id}")
+    code_text = export_inference_code(str(dataset_id))
+    return {"code": code_text, "filename": f"inference_{str(dataset_id)[:8]}.py"}
 
 
 @router.post("/compare", response_model=MLCompareResponse, status_code=status.HTTP_200_OK)

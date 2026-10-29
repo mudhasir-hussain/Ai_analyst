@@ -67,8 +67,10 @@ def validate_plan_operations(operations: Any, df: pd.DataFrame) -> Tuple[bool, L
     and reference actual columns in the dataset.
     """
     warnings: List[str] = []
-    if not isinstance(operations, list) or len(operations) == 0:
-        return False, ["Plan must contain at least one operation in 'operations'."]
+    if not isinstance(operations, list):
+        return False, ["Plan operations must be a list."]
+    if len(operations) == 0:
+        return True, []
 
     current_cols = set(df.columns)
 
@@ -155,7 +157,14 @@ def generate_ai_plan(
     provider = get_llm_provider(provider_name)
     raw_response = provider.generate(system_prompt=system_prompt, user_prompt=full_user_prompt)
 
-    plan_dict = extract_and_parse_json(raw_response)
+    try:
+        plan_dict = extract_and_parse_json(raw_response)
+    except AIPlanError as e:
+        logger.warning(f"LLM generated unparseable or truncated JSON: {e}. Falling back to deterministic rule engine failsafe...")
+        from services.ai.provider import MockLLMProvider
+        fallback_raw = MockLLMProvider(model="deterministic-failsafe").generate(system_prompt=system_prompt, user_prompt=full_user_prompt)
+        plan_dict = extract_and_parse_json(fallback_raw)
+
     operations = plan_dict.get("operations", [])
     model_warnings = plan_dict.get("warnings", [])
     if isinstance(model_warnings, list):
@@ -168,6 +177,8 @@ def generate_ai_plan(
     if not is_valid:
         validation_status = "invalid"
         warnings.extend(validation_errors)
+    elif len(operations) == 0:
+        validation_status = "informational"
     else:
         # Pre-flight dry run on slice
         try:
@@ -259,8 +270,16 @@ def approve_and_execute_plan(
 
     # Load active version dataframe
     if settings.SUPABASE_URL == "https://your-supabase-project.supabase.co":
-        source_version_id = uuid.uuid4()
-        active_version_number = 1
+        from services.history.service import _ensure_dev_base_version, _DEV_VERSIONS_REGISTRY
+        _ensure_dev_base_version(dataset_id)
+        existing_versions = _DEV_VERSIONS_REGISTRY.get(str(dataset_id), [])
+        if existing_versions:
+            last_version = existing_versions[-1]
+            source_version_id = UUID4(str(last_version["id"]))
+            active_version_number = int(last_version.get("version_number", 1))
+        else:
+            source_version_id = uuid.uuid4()
+            active_version_number = 1
         df = load_version_dataframe("mock_bucket/sample.csv", str(dataset_id))
     else:
         d_res = supabase.table("datasets").select("*").eq("id", str(dataset_id)).execute()

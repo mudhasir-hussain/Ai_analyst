@@ -14,14 +14,24 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str = "your-supabase-service-role-key"
     
     LLM_PROVIDER: str = "gemini"
-    LLM_MODEL_NAME: str = "gemini-2.5-flash"
+    LLM_MODEL_NAME: str = "gemini-3.5-flash-lite"
     LLM_API_KEY: Optional[str] = None
     
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL_NAME: str = "llama-3.3-70b-versatile"
     HUGGINGFACE_API_KEY: Optional[str] = None
     LLM_TIMEOUT_SECONDS: int = 60
+    
+    # Rate Limiting Settings
+    ENABLE_RATE_LIMIT: bool = True
+    DEFAULT_RATE_LIMIT_PER_MINUTE: int = 120
+    AI_RATE_LIMIT_PER_MINUTE: int = 30
+
+    # Security & CORS Settings
+    ALLOWED_ORIGINS: str = "*"
     
     model_config = SettingsConfigDict(
         env_file=[

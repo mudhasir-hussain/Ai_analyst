@@ -48,6 +48,11 @@ class MLValidationError(DatasetValidationError):
         super().__init__(detail, error_code)
 
 
+class RateLimitExceededError(AppException):
+    def __init__(self, detail: str = "Rate limit exceeded. Too many requests.", error_code: str = "RATE_LIMIT_EXCEEDED"):
+        super().__init__(detail, error_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
 ValidationError = DatasetValidationError
 
 
