@@ -90,13 +90,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 border: 'none',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
-                boxShadow: isActive ? '0 2px 10px rgba(99, 102, 241, 0.4)' : 'none'
+                boxShadow: isActive ? '0 2px 10px rgba(99, 102, 241, 0.4)' : 'none',
+                flexShrink: 0,
+                whiteSpace: 'nowrap'
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d={tab.icon} />
               </svg>
-              {tab.label}
+              <span>{tab.label}</span>
             </button>
           );
         })}
@@ -107,23 +109,25 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={onOpenUpload}
           className="btn-secondary"
-          style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+          title="Upload Dataset"
+          style={{ padding: '8px 12px', fontSize: '0.85rem', flexShrink: 0 }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-          Upload Dataset
+          <span className="nav-btn-label">Upload Dataset</span>
         </button>
 
         <button
           onClick={onToggleAIAssistant}
+          title="Toggle AI Assistant"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '8px 16px',
+            padding: '8px 14px',
             borderRadius: 'var(--radius-md)',
             background: isAIAssistantOpen ? 'var(--brand-gradient)' : 'rgba(99, 102, 241, 0.15)',
             color: isAIAssistantOpen ? '#FFFFFF' : 'var(--accent-cyan)',
@@ -132,13 +136,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             fontSize: '0.85rem',
             cursor: 'pointer',
             boxShadow: isAIAssistantOpen ? 'var(--brand-glow)' : 'none',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            flexShrink: 0
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
           </svg>
-          AI Assistant
+          <span className="nav-btn-label">AI Assistant</span>
         </button>
       </div>
     </header>

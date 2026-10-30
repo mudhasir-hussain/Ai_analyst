@@ -216,7 +216,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px', color: 'var(--text-primary)' }}>
               Synthesized Findings & Observations ({report.insights.length})
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '16px' }}>
               {report.insights.map((item, idx) => {
                 const badgeColor =
                   item.category === 'risk' ? '#F43F5E' :

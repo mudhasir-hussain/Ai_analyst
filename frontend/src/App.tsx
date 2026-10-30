@@ -360,26 +360,24 @@ export function App() {
 
         <div style={{ marginTop: dataset ? '20px' : '4px' }}>
           {/* Tab: Data Table & Manual Transforms */}
-          {activeTab === 'table' && (
-            <>
-              <TransformToolbar
-                columns={previewData.columns}
-                onApplyTransform={handleApplyTransform}
-                onPreviewTransform={handlePreviewTransform}
-                isProcessing={isProcessing}
-              />
-              <DataTable
-                columns={previewData.columns}
-                rows={previewData.rows}
-                columnTypes={activeVersion?.schema_json}
-                totalRows={previewData.total_rows}
-                isLoading={isProcessing}
-              />
-            </>
-          )}
+          <div style={{ display: activeTab === 'table' ? 'block' : 'none' }}>
+            <TransformToolbar
+              columns={previewData.columns}
+              onApplyTransform={handleApplyTransform}
+              onPreviewTransform={handlePreviewTransform}
+              isProcessing={isProcessing}
+            />
+            <DataTable
+              columns={previewData.columns}
+              rows={previewData.rows}
+              columnTypes={activeVersion?.schema_json}
+              totalRows={previewData.total_rows}
+              isLoading={isProcessing}
+            />
+          </div>
 
           {/* Tab: Health & Profiling */}
-          {activeTab === 'health' && (
+          <div style={{ display: activeTab === 'health' ? 'block' : 'none' }}>
             <HealthScorecard
               health={health}
               profile={profile}
@@ -387,10 +385,10 @@ export function App() {
               onAutoHeal={handleAutoHeal}
               isAutoHealing={isProcessing}
             />
-          )}
+          </div>
 
-          {/* Tab: Visualizations */}
-          {activeTab === 'visualizations' && (
+          {/* Tab: Visualizations (Persists user-selected custom chart across navigation) */}
+          <div style={{ display: activeTab === 'visualizations' ? 'block' : 'none' }}>
             <VisualizationsTab
               columns={previewData.columns}
               recommendations={visualizations?.recommended_charts || []}
@@ -403,44 +401,44 @@ export function App() {
                 return api.requestVisualization(dataset.id, req);
               }}
             />
-          )}
-
-            {/* Tab: Executive Reports */}
-            {activeTab === 'reports' && (
-              <ReportsTab
-                report={report}
-                activeVersionNumber={activeVersion?.version_number}
-                onGenerateReport={handleGenerateReport}
-                onExportDataset={handleExportDataset}
-                isGenerating={isGeneratingReport}
-                isExporting={isProcessing}
-              />
-            )}
-
-            {/* Tab: Version History & Audit */}
-            {activeTab === 'history' && (
-              <VersionHistoryDrawer
-                versions={versions}
-                timeline={timeline}
-                activeVersionId={activeVersion?.id}
-                onDiffVersions={handleDiffVersions}
-                onRollbackVersion={handleRollbackVersion}
-                isProcessing={isProcessing}
-              />
-            )}
-
-            {/* Tab: ML Studio */}
-            {activeTab === 'ml' && (
-              <MLLabTab
-                datasetId={dataset?.id}
-                versions={versions}
-                activeVersionNumber={activeVersion?.version_number}
-                onLoadSample={handleLoadSample}
-                showToast={showToast}
-              />
-            )}
           </div>
-        </main>
+
+          {/* Tab: Executive Reports */}
+          <div style={{ display: activeTab === 'reports' ? 'block' : 'none' }}>
+            <ReportsTab
+              report={report}
+              activeVersionNumber={activeVersion?.version_number}
+              onGenerateReport={handleGenerateReport}
+              onExportDataset={handleExportDataset}
+              isGenerating={isGeneratingReport}
+              isExporting={isProcessing}
+            />
+          </div>
+
+          {/* Tab: Version History & Audit */}
+          <div style={{ display: activeTab === 'history' ? 'block' : 'none' }}>
+            <VersionHistoryDrawer
+              versions={versions}
+              timeline={timeline}
+              activeVersionId={activeVersion?.id}
+              onDiffVersions={handleDiffVersions}
+              onRollbackVersion={handleRollbackVersion}
+              isProcessing={isProcessing}
+            />
+          </div>
+
+          {/* Tab: ML Studio */}
+          <div style={{ display: activeTab === 'ml' ? 'block' : 'none' }}>
+            <MLLabTab
+              datasetId={dataset?.id}
+              versions={versions}
+              activeVersionNumber={activeVersion?.version_number}
+              onLoadSample={handleLoadSample}
+              showToast={showToast}
+            />
+          </div>
+        </div>
+      </main>
 
       {/* Slide-over AI Assistant */}
       <AIAssistantPanel

@@ -203,7 +203,7 @@ export const VersionHistoryDrawer: React.FC<VersionHistoryDrawerProps> = ({
                 </div>
 
                 {/* Metrics Comparison Pills */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 130px), 1fr))', gap: '12px', marginBottom: '20px' }}>
                   <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Row Shift</span>
                     <div style={{ fontSize: '1.2rem', fontWeight: 700, color: diffResult.rows_diff < 0 ? 'var(--accent-rose)' : 'var(--text-primary)' }}>

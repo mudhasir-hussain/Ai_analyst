@@ -475,7 +475,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         {/* Control Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
           gap: '16px',
           paddingTop: '16px',
           borderTop: '1px solid var(--border-subtle)'
@@ -1445,7 +1445,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                   </button>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.4fr) minmax(280px, 1fr)', gap: '24px', alignItems: 'start' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 290px), 1fr))', gap: '24px', alignItems: 'start' }}>
                   {/* Left: Input Controls */}
                   <div style={{
                     background: 'rgba(255, 255, 255, 0.02)',
@@ -1740,7 +1740,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
                 </p>
 
                 {/* Side-by-Side Comparison Table */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '16px' }}>
                   <div style={{ padding: '14px', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-sm)' }}>
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
                       Baseline v{compareResult.base_version.version_number}

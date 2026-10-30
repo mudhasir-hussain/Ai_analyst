@@ -77,7 +77,7 @@ export const DataTable: React.FC<DataTableProps> = ({
     <div className="glass-panel" style={{ padding: '24px', marginTop: '20px' }}>
       {/* Search & Meta Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '16px', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', width: '320px' }}>
+        <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
           <input
             type="text"
             placeholder="Search all cells..."
