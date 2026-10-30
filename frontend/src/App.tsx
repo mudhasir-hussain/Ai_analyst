@@ -102,7 +102,7 @@ export function App() {
     try {
       const file = getSampleDatasetFile();
       await handleUploadSuccess(file);
-      showToast('Loaded SaaS Customer Churn benchmark dataset (146 records)!', 'success');
+      showToast('Loaded Titanic Survival benchmark dataset (891 records)!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Sample load failed', 'error');
     } finally {

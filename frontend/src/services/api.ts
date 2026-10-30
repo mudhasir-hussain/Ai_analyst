@@ -21,7 +21,9 @@ import type {
   AIAskResponse
 } from '../types/api';
 
-const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+const rawApiBase = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+// Sanitize against pasted multi-lines or trailing slashes
+const API_BASE = (rawApiBase ? rawApiBase.trim().split(/\s+/)[0].replace(/\/+$/, '') : '');
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('ai_analyst_token') || 'mock-token';

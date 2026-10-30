@@ -321,10 +321,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#FFFFFF' }}>
-                      SaaS Customer Churn & LTV Benchmark (146 rows)
+                      Titanic Survival Benchmark (891 rows)
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                      Subscription profiles with contracts, usage, duplicates, nulls, and outliers for Profiling, Cleaning, and ML Studio
+                      Passenger records with demographics, fares, missing values, and outliers for Profiling, Cleaning, and ML Studio
                     </div>
                   </div>
                 </button>

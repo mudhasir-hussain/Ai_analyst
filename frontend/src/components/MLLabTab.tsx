@@ -397,7 +397,7 @@ export const MLLabTab: React.FC<MLLabTabProps> = ({
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
           {onLoadSample && (
             <button onClick={onLoadSample} className="btn-primary" style={{ padding: '10px 22px', fontSize: '0.9rem' }}>
-              Load SaaS Customer Churn Dataset (146 rows)
+              Load Titanic Survival Dataset (891 rows)
             </button>
           )}
         </div>
