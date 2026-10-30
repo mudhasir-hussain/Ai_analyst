@@ -109,13 +109,16 @@ def test_production_mock_token_strictly_rejected():
     with HTTP 401 Unauthorized, eliminating any risk of production authentication bypass.
     """
     orig_env = settings.ENVIRONMENT
+    orig_url = settings.SUPABASE_URL
     try:
         settings.ENVIRONMENT = "production"
+        settings.SUPABASE_URL = "https://actual-production.supabase.co"
         res = client.get("/projects", headers=MOCK_AUTH_HEADER)
         assert res.status_code == 401
         assert "strictly disabled" in res.json().get("detail", "").lower()
     finally:
         settings.ENVIRONMENT = orig_env
+        settings.SUPABASE_URL = orig_url
 
 
 def test_global_unhandled_exception_sanitization():

@@ -23,14 +23,19 @@ def get_current_user(
     token = credentials.credentials
 
     if token == "mock-token":
-        if settings.ENVIRONMENT.lower().strip() == "development":
-            logger.info("Authenticated using local development mock token")
+        # Allow demo guest analyst access if running in development OR in standalone demo mode without real Supabase credentials
+        is_standalone_demo = (
+            not settings.SUPABASE_URL 
+            or settings.SUPABASE_URL == "https://your-supabase-project.supabase.co"
+        )
+        if settings.ENVIRONMENT.lower().strip() == "development" or is_standalone_demo:
+            logger.info("Authenticated using demo / local development mock token")
             class MockUser:
                 id = "00000000-0000-0000-0000-000000000000"
-                email = "developer@local.test"
+                email = "demo-analyst@spectra.app"
             return MockUser()
         else:
-            logger.warning("Mock token access rejected in non-development environment.")
+            logger.warning("Mock token access rejected in non-development environment with live database.")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Mock token authentication is strictly disabled outside development environment.",
